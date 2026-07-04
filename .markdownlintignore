@@ -1,0 +1,7 @@
+# Build- und Release-Artefakte
+build/**
+dist/**
+release/**
+
+# Sonstiges
+**/*.zip
