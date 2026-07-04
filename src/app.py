@@ -31,6 +31,8 @@ RECIPIENT = "KG_Kaufleuteteam"
 CSV_COLUMNS = ["Name", "Cert-ID", "Prüfung", "Beginn", "Ende", "Ergebnis"]
 DURATION_COLUMN = "Benötigte Zeit"
 OUTPUT_COLUMNS = CSV_COLUMNS + [DURATION_COLUMN]
+NEW_DATA_CAPTURED_AT_COLUMN = "Erfasst am"
+NEW_DATA_COLUMNS = OUTPUT_COLUMNS + [NEW_DATA_CAPTURED_AT_COLUMN]
 NBSP = "\u00A0"
 FONT_STYLE_TOKEN = "__ICDL_FONT_STYLE__"
 DATETIME_FORMATS = ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y")
@@ -282,20 +284,226 @@ def _format_html_value(column: str, value: str | int) -> str:
     return "" if value == "" else str(value)
 
 
-def _write_excel(rows: list[dict[str, str]], output_xlsx: Path) -> None:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Ergebnisse"
+def _normalize_key_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d.%m.%Y %H:%M")
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    return str(value).strip()
 
-    base_font = _resolve_excel_base_font()
-    header_font = Font(bold=True)
-    if base_font is not None:
-        header_font = copy(base_font)
-        header_font.bold = True
 
+def _build_row_key_from_source_row(row: dict[str, str]) -> tuple[str, ...]:
+    return tuple(_normalize_key_value(_get_output_value(row, col)) for col in OUTPUT_COLUMNS)
+
+
+def _build_row_key_from_materialized_row(row: dict[str, object]) -> tuple[str, ...]:
+    return tuple(_normalize_key_value(row.get(col, "")) for col in OUTPUT_COLUMNS)
+
+
+def _find_latest_archived_output(output_dir: Path) -> Path | None:
+    archive_dir = output_dir / "archive"
+    if not archive_dir.exists():
+        return None
+
+    candidates: list[Path] = []
+    for candidate in archive_dir.glob("ICDL-Ergebnisse_*.xlsx"):
+        if candidate.is_file():
+            candidates.append(candidate)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+def _read_row_keys_from_existing_workbook(workbook_path: Path) -> set[tuple[str, ...]]:
+    keys: set[tuple[str, ...]] = set()
+
+    try:
+        wb_existing = load_workbook(workbook_path, read_only=True, data_only=True)
+    except Exception as exc:
+        _log_debug(f"Archivdatei konnte nicht gelesen werden ({workbook_path}): {exc}")
+        return keys
+
+    try:
+        if "Ergebnisse" in wb_existing.sheetnames:
+            ws_existing = wb_existing["Ergebnisse"]
+        else:
+            ws_existing = wb_existing.active
+
+        if ws_existing.max_row < 2:
+            return keys
+
+        first_row = next(ws_existing.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if first_row is None:
+            return keys
+
+        header_map: dict[str, int] = {}
+        for idx, header_value in enumerate(first_row):
+            normalized = _normalize_key_value(header_value)
+            if normalized:
+                header_map[normalized] = idx
+
+        has_full_header = all(col in header_map for col in OUTPUT_COLUMNS)
+
+        for values in ws_existing.iter_rows(min_row=2, values_only=True):
+            extracted: list[str] = []
+
+            if has_full_header:
+                for col in OUTPUT_COLUMNS:
+                    index = header_map[col]
+                    value = values[index] if index < len(values) else None
+                    extracted.append(_normalize_key_value(value))
+            else:
+                for index in range(len(OUTPUT_COLUMNS)):
+                    value = values[index] if index < len(values) else None
+                    extracted.append(_normalize_key_value(value))
+
+            if any(extracted):
+                keys.add(tuple(extracted))
+
+    except Exception as exc:
+        _log_debug(f"Zeilenvergleich aus Archivdatei fehlgeschlagen ({workbook_path}): {exc}")
+    finally:
+        try:
+            wb_existing.close()
+        except Exception:
+            pass
+
+    return keys
+
+
+def _read_rows_from_existing_sheet(
+    workbook_path: Path,
+    sheet_name: str,
+    expected_columns: list[str],
+) -> list[dict[str, str]]:
+    result_rows: list[dict[str, str]] = []
+
+    try:
+        wb_existing = load_workbook(workbook_path, read_only=True, data_only=True)
+    except Exception as exc:
+        _log_debug(f"Archivdatei konnte nicht gelesen werden ({workbook_path}): {exc}")
+        return result_rows
+
+    try:
+        if sheet_name not in wb_existing.sheetnames:
+            return result_rows
+
+        ws_existing = wb_existing[sheet_name]
+        if ws_existing.max_row < 2:
+            return result_rows
+
+        first_row = next(ws_existing.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if first_row is None:
+            return source_rows
+
+        header_map: dict[str, int] = {}
+        for idx, header_value in enumerate(first_row):
+            normalized = _normalize_key_value(header_value)
+            if normalized:
+                header_map[normalized] = idx
+
+        has_full_header = all(col in header_map for col in expected_columns)
+
+        for values in ws_existing.iter_rows(min_row=2, values_only=True):
+            row: dict[str, str] = {}
+            if has_full_header:
+                for col in expected_columns:
+                    index = header_map[col]
+                    value = values[index] if index < len(values) else None
+                    row[col] = _normalize_key_value(value)
+            else:
+                for index, col in enumerate(expected_columns):
+                    value = values[index] if index < len(values) else None
+                    row[col] = _normalize_key_value(value)
+
+            if any((row.get(col, "") or "").strip() for col in expected_columns):
+                result_rows.append(row)
+    except Exception as exc:
+        _log_debug(f"Vorherige Neue-Daten-Sammlung konnte nicht gelesen werden ({workbook_path}): {exc}")
+    finally:
+        try:
+            wb_existing.close()
+        except Exception:
+            pass
+
+    return result_rows
+
+
+def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path) -> list[dict[str, str]]:
+    latest_archive = _find_latest_archived_output(output_dir)
+    if latest_archive is None:
+        captured_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        return [
+            {
+                **{col: _get_output_value(row, col) for col in OUTPUT_COLUMNS},
+                NEW_DATA_CAPTURED_AT_COLUMN: captured_at,
+            }
+            for row in rows
+        ]
+
+    previous_history_rows = _read_rows_from_existing_sheet(latest_archive, "Neue Daten", NEW_DATA_COLUMNS)
+    previous_history_keys = {
+        _build_row_key_from_materialized_row(previous_row) for previous_row in previous_history_rows
+    }
+
+    existing_keys = _read_row_keys_from_existing_workbook(latest_archive)
+    if existing_keys:
+        current_run_new_rows: list[dict[str, object]] = []
+        captured_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        for row in rows:
+            row_key = _build_row_key_from_source_row(row)
+            if row_key not in existing_keys:
+                materialized_row = {col: _get_output_value(row, col) for col in OUTPUT_COLUMNS}
+                if row_key in previous_history_keys:
+                    continue
+                materialized_row[NEW_DATA_CAPTURED_AT_COLUMN] = captured_at
+                current_run_new_rows.append(materialized_row)
+    else:
+        captured_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        current_run_new_rows = []
+        for row in rows:
+            row_key = _build_row_key_from_source_row(row)
+            if row_key in previous_history_keys:
+                continue
+            materialized_row = {col: _get_output_value(row, col) for col in OUTPUT_COLUMNS}
+            materialized_row[NEW_DATA_CAPTURED_AT_COLUMN] = captured_at
+            current_run_new_rows.append(materialized_row)
+
+    return previous_history_rows + current_run_new_rows
+
+
+def _get_sheet_value(row: dict[str, object], column: str) -> str | int:
+    if column in OUTPUT_COLUMNS and all(key in row for key in CSV_COLUMNS):
+        source_row: dict[str, str] = {key: str(row.get(key, "")) for key in CSV_COLUMNS}
+        return _get_output_value(source_row, column)
+
+    value = row.get(column, "")
+    if value is None:
+        return ""
+    return value
+
+
+def _populate_sheet(
+    ws,
+    rows: list[dict[str, object]],
+    *,
+    columns: list[str],
+    base_font: Font | None,
+    header_font: Font,
+    table_name: str,
+) -> None:
     # Kopfzeile
-    ws.append(OUTPUT_COLUMNS)
-    for col_idx in range(1, len(OUTPUT_COLUMNS) + 1):
+    ws.append(columns)
+    for col_idx in range(1, len(columns) + 1):
         cell = ws.cell(row=1, column=col_idx)
         cell.font = header_font
         # DIN 5008:2020 (hier für Tabellenkopfzeile umgesetzt):
@@ -308,11 +516,11 @@ def _write_excel(rows: list[dict[str, str]], output_xlsx: Path) -> None:
 
     # Daten
     for row in rows:
-        ws.append([_get_output_value(row, col) for col in OUTPUT_COLUMNS])
+        ws.append([_get_sheet_value(row, col) for col in columns])
 
     # Ausrichtung: Zahlen/Datum rechts, Texte links
     for row_idx in range(2, ws.max_row + 1):
-        for col_idx, col_name in enumerate(OUTPUT_COLUMNS, start=1):
+        for col_idx, col_name in enumerate(columns, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
 
             if base_font is not None:
@@ -332,7 +540,7 @@ def _write_excel(rows: list[dict[str, str]], output_xlsx: Path) -> None:
     end_col = ws.max_column
     if end_row >= 2:
         table_ref = f"A1:{chr(64 + end_col)}{end_row}"
-        tab = Table(displayName="ICDLErgebnisse", ref=table_ref)
+        tab = Table(displayName=table_name, ref=table_ref)
         tab.tableStyleInfo = TableStyleInfo(
             name="TableStyleMedium2",
             showFirstColumn=False,
@@ -355,7 +563,91 @@ def _write_excel(rows: list[dict[str, str]], output_xlsx: Path) -> None:
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
+
+def _write_excel(rows: list[dict[str, str]], new_data_history_rows: list[dict[str, object]], output_xlsx: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ergebnisse"
+
+    base_font = _resolve_excel_base_font()
+    header_font = Font(bold=True)
+    if base_font is not None:
+        header_font = copy(base_font)
+        header_font.bold = True
+
+    _populate_sheet(
+        ws,
+        [dict(row) for row in rows],
+        columns=OUTPUT_COLUMNS,
+        base_font=base_font,
+        header_font=header_font,
+        table_name="ICDLErgebnisse",
+    )
+
+    ws_new = wb.create_sheet(title="Neue Daten")
+    _populate_sheet(
+        ws_new,
+        new_data_history_rows,
+        columns=NEW_DATA_COLUMNS,
+        base_font=base_font,
+        header_font=header_font,
+        table_name="ICDLNeueDaten",
+    )
+
+    if not new_data_history_rows:
+        hint_cell = ws_new.cell(row=2, column=1)
+        hint_cell.value = "Keine neuen Datensätze gegenüber der zuletzt archivierten Excel-Datei erkannt."
+        if base_font is not None:
+            hint_cell.font = copy(base_font)
+        hint_cell.alignment = Alignment(horizontal="left", vertical="center")
+
     wb.save(output_xlsx)
+
+
+def _prune_archive_directory(archive_dir: Path, keep_last: int = 10) -> int:
+    if keep_last < 1:
+        keep_last = 1
+
+    if not archive_dir.exists() or not archive_dir.is_dir():
+        return 0
+
+    excel_files = [p for p in archive_dir.glob("*.xlsx") if p.is_file()]
+    if len(excel_files) <= keep_last:
+        return 0
+
+    excel_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    to_delete = excel_files[keep_last:]
+    deleted = 0
+
+    for file_path in to_delete:
+        try:
+            file_path.unlink()
+            deleted += 1
+        except Exception as exc:
+            _log_debug(f"Archivdatei konnte nicht gelöscht werden ({file_path}): {exc}")
+
+    return deleted
+
+
+def _prune_archives_on_startup(keep_last: int = 10) -> None:
+    seen_archive_dirs: set[str] = set()
+    deleted_total = 0
+
+    for search_dir in _get_csv_search_dirs():
+        archive_dir = search_dir / "archive"
+        try:
+            key = str(archive_dir.resolve())
+        except Exception:
+            key = str(archive_dir)
+
+        if key in seen_archive_dirs:
+            continue
+        seen_archive_dirs.add(key)
+
+        deleted_total += _prune_archive_directory(archive_dir, keep_last=keep_last)
+
+    if deleted_total > 0:
+        _log_debug(f"Archivbereinigung beim Start: {deleted_total} alte Excel-Datei(en) entfernt.")
 
 
 def _create_html_table(rows: list[dict[str, str]]) -> str:
@@ -680,7 +972,8 @@ def process_csv_to_excel(csv_path: Path) -> ProcessingResult:
 
     exam_date = _resolve_reference_datetime(csv_path, rows)
     output_xlsx = _build_output_path(csv_path)
-    _write_excel(rows, output_xlsx)
+    new_data_history_rows = _compute_new_data_history_rows(rows, csv_path.parent)
+    _write_excel(rows, new_data_history_rows, output_xlsx)
 
     return ProcessingResult(rows=rows, output_xlsx=output_xlsx, exam_date=exam_date)
 
@@ -888,6 +1181,8 @@ def _is_file_modified_today(path: Path) -> bool:
 
 
 def run_gui() -> None:
+    _prune_archives_on_startup(keep_last=10)
+
     root = tk.Tk()
     root.title(APP_TITLE)
     _apply_window_icon(root)

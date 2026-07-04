@@ -5,7 +5,7 @@ Datum: 2026-07-04
 ## Highlights
 
 - Build und Packaging wurden für diesen Stand automatisiert ausgeführt.
-- Artefakte wurden in den versionierten Dist-Ordner Ã¼bernommen.
+- Artefakte wurden in den versionierten Dist-Ordner übernommen.
 - Bitte inhaltliche Highlights bei Bedarf projektspezifisch ergänzen.
 
 ## Qualitätsstatus

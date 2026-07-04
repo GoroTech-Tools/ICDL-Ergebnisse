@@ -31,10 +31,18 @@ Die Anwendung `ICDL-Ergebnisse` automatisiert den Ablauf:
   3. Downloads
 - Wenn dort eine `examinations.csv` **tagesaktuell** ist, startet die Verarbeitung automatisch.
 - Andernfalls kann die CSV über den Button ausgewählt werden.
+- Zusätzlich wird beim Start der Ordner `archive\` automatisch bereinigt:
+  - Es bleiben nur die **10 neuesten** Excel-Dateien (`*.xlsx`) erhalten.
+  - Ältere Excel-Dateien werden automatisch gelöscht.
 
 ## Ergebnis
 
 - Excel-Datei: `ICDL-Ergebnisse_YYYYMMDD_HHMMSS.xlsx`
+- Inhalte der Excel-Datei:
+  - Blatt `Ergebnisse`: enthält alle Datensätze des aktuellen CSV-Laufs.
+  - Blatt `Neue Daten`: enthält eine laufübergreifende Sammlung neu hinzugekommener Datensätze.
+    - Neue Zeilen werden bei jedem Lauf an die bestehende Sammlung angehängt.
+    - Zusätzliche Spalte `Erfasst am` dokumentiert den Zeitpunkt der Aufnahme.
 - Nach erfolgreicher Verarbeitung und Outlook-Vorschau wird die erzeugte Excel-Datei automatisch nach `archive\` verschoben.
 - Existiert dort bereits eine Datei mit gleichem Namen, wird sie ohne Rückfrage überschrieben.
 - Outlook-E-Mail-Vorschau mit:

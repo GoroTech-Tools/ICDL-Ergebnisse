@@ -11,9 +11,9 @@ Datum: 2026-07-04
 ## Letzte Anpassungen
 
 - GUI: Statusbalken für die Verarbeitung ergänzt; bei erfolgreichem Abschluss "Fertig" grün hervorgehoben.
-- GUI: Schaltfläche zum direkten Ã–ffnen des docs-Ordners ergänzt.
+- GUI: Schaltfläche zum direkten Öffnen des docs-Ordners ergänzt.
 - Automatik: CSV-Suche und Auto-Start für App-Ordner, Desktop und Downloads erweitert.
-- Datenfluss: erzeugte Excel-Dateien werden nach erfolgreicher Verarbeitung automatisch nach archive verschoben (Ãœberschreiben ohne Rückfrage).
+- Datenfluss: erzeugte Excel-Dateien werden nach erfolgreicher Verarbeitung automatisch nach archive verschoben (Überschreiben ohne Rückfrage).
 - Distribution: demo-Ordner wird in Build und Release mitgeführt; Demo-CSV liegt unter demo/examinations.csv.
 
 ## Qualitätsstatus

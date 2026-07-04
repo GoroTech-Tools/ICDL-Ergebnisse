@@ -1,4 +1,4 @@
-﻿# Release Notes v2.7
+﻿# Release Notes v2.9
 
 Datum: 2026-07-04
 
@@ -24,22 +24,22 @@ Datum: 2026-07-04
 
 ## Artefakte
 
-- Build-Verzeichnis: dist/ICDL-Ergebnisse-v2.7/
-- EXE: dist/ICDL-Ergebnisse-v2.7/ICDL-Ergebnisse.exe
+- Build-Verzeichnis: dist/ICDL-Ergebnisse-v2.9/
+- EXE: dist/ICDL-Ergebnisse-v2.9/ICDL-Ergebnisse.exe
 - Dokumentation: dist/<Build>/docs/
-- Archivdaten: dist/ICDL-Ergebnisse-v2.7/archive/
-- Release-ZIP: release/ICDL-Ergebnisse-v2.7.zip
+- Archivdaten: dist/ICDL-Ergebnisse-v2.9/archive/
+- Release-ZIP: release/ICDL-Ergebnisse-v2.9.zip
 
 ## Enthaltene Commits (aktuelle Historie)
 
+- `a2fcfc6` Release v2.8: Betreff nutzt CSV-Änderungsdatum inkl. Uhrzeit
+- `30d1296` Release v2.7: Betreffdatum aus neuestem Prüfungsdatum
 - `dc5944c` Docs: README auf v2.6 Verhalten und Release-Link aktualisiert
 - `8b9f874` Release v2.6: Titelzeilen-Icon und modernes GUI-Layout
 - `f047461` Release v2.5: OneDrive auto-start fix and GUI text/layout update
-- `fa6d56e` Cleanup: untrack build/dist/release artifacts, keep release notes
-- `ebf7ad2` Enable markdownlint for release notes and apply markdown fixes
 
 ## Technische Build-Informationen
 
-- Build-Datum: 2026-07-04 17:51:49
+- Build-Datum: 2026-07-04 19:05:51
 - Build-Modus: PyInstaller --noconfirm
 - EXE-Name: ICDL-Ergebnisse.exe

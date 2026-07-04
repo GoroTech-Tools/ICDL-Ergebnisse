@@ -115,6 +115,68 @@ function Get-NextVersion {
     return "$major.$minor"
 }
 
+function Repair-CommonUtf8Mojibake {
+    param([string]$Text)
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return $Text
+    }
+
+    $markers = @('Ã', 'Â', 'â€', 'â€“', 'â€”', 'â„¢', 'â€œ', 'â€ž')
+    $looksBroken = $false
+    foreach ($marker in $markers) {
+        if ($Text.Contains($marker)) {
+            $looksBroken = $true
+            break
+        }
+    }
+
+    if (-not $looksBroken) {
+        return $Text
+    }
+
+    try {
+        $cp1252 = [System.Text.Encoding]::GetEncoding(1252)
+        $candidate = [System.Text.Encoding]::UTF8.GetString($cp1252.GetBytes($Text))
+
+        $oldMarkerCount = ([regex]::Matches($Text, 'Ã|Â|â€')).Count
+        $newMarkerCount = ([regex]::Matches($candidate, 'Ã|Â|â€')).Count
+
+        if ($newMarkerCount -lt $oldMarkerCount) {
+            $Text = $candidate
+        }
+    }
+    catch {
+        # Bei Problemen den Originaltext unverändert lassen.
+    }
+
+    # Zusätzlicher, byte-basierter Fallback für häufige Umlaute
+    # (unabhängig von der Skriptdatei-Kodierung).
+    try {
+        $cp1252 = [System.Text.Encoding]::GetEncoding(1252)
+        $replacementMap = @{
+            ($cp1252.GetString([byte[]](0xC3, 0x9C))) = 'Ü'
+            ($cp1252.GetString([byte[]](0xC3, 0x96))) = 'Ö'
+            ($cp1252.GetString([byte[]](0xC3, 0x84))) = 'Ä'
+            ($cp1252.GetString([byte[]](0xC3, 0xBC))) = 'ü'
+            ($cp1252.GetString([byte[]](0xC3, 0xB6))) = 'ö'
+            ($cp1252.GetString([byte[]](0xC3, 0xA4))) = 'ä'
+            ($cp1252.GetString([byte[]](0xC3, 0x9F))) = 'ß'
+        }
+
+        foreach ($key in $replacementMap.Keys) {
+            if ($Text.Contains($key)) {
+                $Text = $Text.Replace($key, $replacementMap[$key])
+            }
+        }
+    }
+    catch {
+        # Im Zweifel weiterhin den aktuellen Text unverändert verwenden.
+    }
+
+    return $Text
+}
+
 function New-ReleaseNotesFile {
     param(
         [Parameter(Mandatory = $true)][string]$Version,
@@ -223,13 +285,8 @@ function New-ReleaseNotesFile {
     $content = $contentLines -join "`r`n"
 
     # Robust gegen Mojibake durch unterschiedliche Skript-Decodierung (z. B. PS5 ohne BOM).
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x00BC), [string][char]0x00FC) # Ã¼ -> ü
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x00A4), [string][char]0x00E4) # Ã¤ -> ä
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x00B6), [string][char]0x00F6) # Ã¶ -> ö
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x009F), [string][char]0x00DF) # ÃŸ -> ß
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x009C), [string][char]0x00DC) # Ãœ -> Ü
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x0096), [string][char]0x00D6) # Ã– -> Ö
-    $content = $content.Replace(([string]([char]0x00C3) + [char]0x0084), [string][char]0x00C4) # Ã„ -> Ä
+    # Korrigiert typische UTF-8-als-cp1252-Fehler global statt einzelner Zeichenersetzungen.
+    $content = Repair-CommonUtf8Mojibake -Text $content
 
     # Explizit UTF-8 mit BOM schreiben (Windows-/Editor-kompatibel für Umlaute).
     [System.IO.File]::WriteAllText($notesPath, $content, (New-Object System.Text.UTF8Encoding($true)))

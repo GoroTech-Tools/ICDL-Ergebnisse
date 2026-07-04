@@ -7,18 +7,23 @@ Diese App erledigt folgenden Ablauf:
 2. Alternativ CSV manuell auswählen (Semikolon-getrennt)
 3. Daten in eine Excel-Datei `ICDL-Ergebnisse_YYYYMMDD_HHMMSS.xlsx` schreiben
    - Zeitstempel basiert auf dem Änderungsdatum der CSV-Datei
+   - Enthält die Blätter `Ergebnisse` und `Neue Daten`
+   - `Neue Daten` wird über Läufe hinweg fortgeschrieben (kumuliert) und enthält zusätzlich `Erfasst am`
 4. Neue Outlook-E-Mail erzeugen
    - Empfänger: `KG_Kaufleuteteam`
    - Betreff: `ICDL-Ergebnisse der Prüfung vom DD.MM.YYYY`
    - Inhalt: kopierte Datentabelle im Nachrichtentext
 5. E-Mail als Vorschau öffnen
 6. Erzeugte Excel-Datei in `archive/` verschieben
+7. Beim Start automatische Archivpflege: In `archive/` bleiben nur die 10 neuesten Excel-Dateien erhalten
 
 ## Neu in v2.6
 
 - Fenster-Titelleisten-Icon robust eingebunden (inkl. Runtime-Fallback im EXE-Betrieb)
 - GUI-Layout modernisiert (ruhigeres Card-/Header-Design, klarere Typografie, bessere Abstände)
 - Mehr Übersicht im Ablaufbereich und optimierte Aktionsleiste
+- Excel: Neues Blatt `Neue Daten` mit laufübergreifender Sammlung und Zeitstempel `Erfasst am`
+- Archivpflege: Beim Start werden alte Excel-Dateien in `archive/` automatisch bereinigt (nur letzte 10 bleiben)
 
 Aktuelles Release:
 
