@@ -135,7 +135,7 @@ def _resolve_reference_datetime(csv_path: Path, rows: list[dict[str, str]]) -> d
 def _build_output_path(csv_path: Path) -> Path:
     mtime = datetime.fromtimestamp(csv_path.stat().st_mtime)
     file_name = f"ICDL-Ergebnisse_{mtime:%Y%m%d_%H%M%S}.xlsx"
-    return csv_path.with_name(file_name)
+    return _get_app_dir() / file_name
 
 
 def _find_user_excel_template() -> Path | None:
@@ -403,7 +403,7 @@ def _read_rows_from_existing_sheet(
 
         first_row = next(ws_existing.iter_rows(min_row=1, max_row=1, values_only=True), None)
         if first_row is None:
-            return source_rows
+            return result_rows
 
         header_map: dict[str, int] = {}
         for idx, header_value in enumerate(first_row):
@@ -630,21 +630,8 @@ def _prune_archive_directory(archive_dir: Path, keep_last: int = 10) -> int:
 
 
 def _prune_archives_on_startup(keep_last: int = 10) -> None:
-    seen_archive_dirs: set[str] = set()
-    deleted_total = 0
-
-    for search_dir in _get_csv_search_dirs():
-        archive_dir = search_dir / "archive"
-        try:
-            key = str(archive_dir.resolve())
-        except Exception:
-            key = str(archive_dir)
-
-        if key in seen_archive_dirs:
-            continue
-        seen_archive_dirs.add(key)
-
-        deleted_total += _prune_archive_directory(archive_dir, keep_last=keep_last)
+    archive_dir = _get_app_dir() / "archive"
+    deleted_total = _prune_archive_directory(archive_dir, keep_last=keep_last)
 
     if deleted_total > 0:
         _log_debug(f"Archivbereinigung beim Start: {deleted_total} alte Excel-Datei(en) entfernt.")
@@ -972,7 +959,7 @@ def process_csv_to_excel(csv_path: Path) -> ProcessingResult:
 
     exam_date = _resolve_reference_datetime(csv_path, rows)
     output_xlsx = _build_output_path(csv_path)
-    new_data_history_rows = _compute_new_data_history_rows(rows, csv_path.parent)
+    new_data_history_rows = _compute_new_data_history_rows(rows, _get_app_dir())
     _write_excel(rows, new_data_history_rows, output_xlsx)
 
     return ProcessingResult(rows=rows, output_xlsx=output_xlsx, exam_date=exam_date)
@@ -980,7 +967,7 @@ def process_csv_to_excel(csv_path: Path) -> ProcessingResult:
 
 def _archive_output_xlsx(output_xlsx: Path) -> Path:
     """Verschiebt die erzeugte Excel-Datei nach ./archive und überschreibt bei Bedarf."""
-    archive_dir = output_xlsx.parent / "archive"
+    archive_dir = _get_app_dir() / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_target = archive_dir / output_xlsx.name
 
