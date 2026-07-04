@@ -327,8 +327,11 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _compute_duration_minutes(row: dict[str, str]) -> int | None:
-    start = _parse_datetime(row.get("Beginn", ""))
-    end = _parse_datetime(row.get("Ende", ""))
+    start_text = _extract_datetime_text_from_row(row, target="Beginn")
+    end_text = _extract_datetime_text_from_row(row, target="Ende")
+
+    start = _parse_datetime(start_text)
+    end = _parse_datetime(end_text)
     if start is None or end is None:
         return None
 
@@ -336,6 +339,36 @@ def _compute_duration_minutes(row: dict[str, str]) -> int | None:
     if minutes < 0:
         return None
     return minutes
+
+
+def _extract_datetime_text_from_row(row: dict[str, str], target: str) -> str:
+    direct = row.get(target, "")
+    if isinstance(direct, str) and direct.strip():
+        return direct
+
+    normalized_aliases = {_normalize_header_token(a) for a in HEADER_ALIASES.get(target, [])}
+    if target == "Beginn":
+        normalized_aliases.update({"start date", "start datetime", "startdatum", "startzeit", "von"})
+        contains_tokens = ("beginn", "start", "von")
+    else:
+        normalized_aliases.update({"end date", "end datetime", "enddatum", "endzeit", "bis", "finish"})
+        contains_tokens = ("ende", "end", "bis", "finish")
+
+    for key, value in row.items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        normalized_key = _normalize_header_token(str(key))
+        if normalized_key in normalized_aliases:
+            return value
+
+    for key, value in row.items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        normalized_key = _normalize_header_token(str(key))
+        if any(token in normalized_key for token in contains_tokens):
+            return value
+
+    return ""
 
 
 def _normalize_percent_text(value: str) -> str | None:
@@ -1069,7 +1102,7 @@ def process_file(csv_path: Path) -> ExportResult:
     try:
         _create_outlook_preview_mail(result.rows, result.exam_date, result.output_xlsx)
     finally:
-        archived_xlsx = _archive_output_xlsx(result.output_xlsx)
+        archived_xlsx = _archive_output_with_followup_retries(result.output_xlsx)
     return ExportResult(output_xlsx=archived_xlsx, exam_date=result.exam_date)
 
 
@@ -1123,6 +1156,27 @@ def _archive_output_xlsx(output_xlsx: Path) -> Path:
         raise
 
 
+def _archive_output_with_followup_retries(output_xlsx: Path) -> Path:
+    """Archiviert robust mit zusätzlichen Nachlauf-Retries für kurzzeitige Datei-Locks."""
+    last_error: Exception | None = None
+    for _ in range(5):
+        try:
+            return _archive_output_xlsx(output_xlsx)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.6)
+
+    moved = _consolidate_root_exports_to_archive()
+    if moved > 0:
+        candidate = _get_app_dir() / "archive" / output_xlsx.name
+        if candidate.exists():
+            return candidate
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Excel-Datei konnte nicht nach archive verschoben werden.")
+
+
 def _consolidate_root_exports_to_archive() -> int:
     """Verschiebt liegengebliebene Export-Dateien aus dem App-/EXE-Root nach ./archive."""
     app_dir = _get_app_dir()
@@ -1136,7 +1190,6 @@ def _consolidate_root_exports_to_archive() -> int:
         except Exception as exc:
             _log_debug(f"Konsolidierung nach archive fehlgeschlagen ({candidate}): {exc}")
     return moved
-    return archive_target
 
 
 def _get_windows_known_folder_path(folder_id: str) -> Path | None:
@@ -1561,7 +1614,7 @@ def run_gui() -> None:
                             outlook_error = str(exc)
                         finally:
                             try:
-                                archived_xlsx = _archive_output_xlsx(result.output_xlsx)
+                                archived_xlsx = _archive_output_with_followup_retries(result.output_xlsx)
                                 _log_debug(f"Excel archiviert: {archived_xlsx}")
                             except Exception as archive_exc:
                                 _log_debug(f"Archivierung fehlgeschlagen: {archive_exc}")
