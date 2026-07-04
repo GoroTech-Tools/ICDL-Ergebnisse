@@ -14,6 +14,7 @@ Datum: 2026-07-04
 - GUI: Schaltfläche zum direkten Öffnen des docs-Ordners ergänzt.
 - Automatik: CSV-Suche und Auto-Start für App-Ordner, Desktop und Downloads erweitert.
 - Datenfluss: erzeugte Excel-Dateien werden nach erfolgreicher Verarbeitung automatisch nach archive verschoben (Überschreiben ohne Rückfrage).
+- Diagramme: Mermaid-Dokumentation auf SVG umgestellt; PNG-Artefakte wurden entfernt.
 - Distribution: demo-Ordner wird in Build und Release mitgeführt; Demo-CSV liegt unter demo/examinations.csv.
 
 ## Qualitätsstatus
