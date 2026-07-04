@@ -1122,6 +1122,49 @@ def _find_daily_csv_candidate() -> Path | None:
     return None
 
 
+def _describe_csv_location(csv_path: Path) -> str:
+    app_dir = _get_app_dir()
+    try:
+        if csv_path.resolve() == (app_dir / "examinations.csv").resolve():
+            return "Root (App-/EXE-Ordner)"
+    except Exception:
+        pass
+
+    for downloads_dir in _get_windows_desktop_downloads_dirs() if sys.platform.startswith("win") else []:
+        try:
+            if csv_path.resolve() == (downloads_dir / "examinations.csv").resolve():
+                name = downloads_dir.name.lower()
+                if name == "desktop":
+                    return "Desktop"
+                if name == "downloads":
+                    return "Downloads"
+        except Exception:
+            continue
+
+    # Fallback für Nicht-Windows oder unerwartete Pfade
+    try:
+        parent_name = csv_path.parent.name.lower()
+        if parent_name == "desktop":
+            return "Desktop"
+        if parent_name == "downloads":
+            return "Downloads"
+    except Exception:
+        pass
+
+    return "Unbekannter Speicherort"
+
+
+def _is_likely_duplicate_processing(csv_path: Path) -> bool:
+    """Prüft, ob diese CSV mit demselben Zeitstempel wahrscheinlich bereits verarbeitet wurde."""
+    try:
+        expected_output = _build_output_path(csv_path)
+    except Exception:
+        return False
+
+    archive_target = _get_app_dir() / "archive" / expected_output.name
+    return archive_target.exists()
+
+
 def _resolve_docs_dir() -> Path | None:
     """Ermittelt den docs-Ordner für Source- oder EXE-Betrieb."""
     app_dir = _get_app_dir()
@@ -1357,6 +1400,21 @@ def run_gui() -> None:
             return
 
         csv_path = Path(csv_file)
+
+        if _is_likely_duplicate_processing(csv_path):
+            proceed = messagebox.askyesno(
+                APP_TITLE,
+                (
+                    "Diese CSV scheint bereits verarbeitet worden zu sein (gleiches Änderungsdatum/Zeitstempel).\n\n"
+                    f"Datei: {csv_path}\n\n"
+                    "Trotzdem erneut verarbeiten?"
+                ),
+                icon="warning",
+            )
+            if not proceed:
+                status_var.set("Abgebrochen")
+                return
+
         if auto_triggered:
             _set_busy("csv", "Tagesaktuelle CSV erkannt – starte automatische Verarbeitung ...")
         else:
@@ -1472,8 +1530,24 @@ def run_gui() -> None:
     def _auto_start_if_daily_csv_available() -> None:
         daily_csv = _find_daily_csv_candidate()
         if daily_csv is not None:
-            _log_debug(f"Auto-Start mit tagesaktueller CSV: {daily_csv}")
-            _start_processing(str(daily_csv), auto_triggered=True)
+            location_label = _describe_csv_location(daily_csv)
+            _log_debug(f"Auto-Start-Kandidat gefunden ({location_label}): {daily_csv}")
+
+            proceed = messagebox.askyesno(
+                APP_TITLE,
+                (
+                    "Tagesaktuelle CSV wurde automatisch gefunden.\n\n"
+                    f"Speicherort: {location_label}\n"
+                    f"Datei: {daily_csv}\n\n"
+                    "Jetzt automatisch starten?"
+                ),
+                icon="question",
+            )
+
+            if proceed:
+                _start_processing(str(daily_csv), auto_triggered=True)
+            else:
+                status_var.set("Bereit")
 
     root.after(200, _auto_start_if_daily_csv_available)
 
