@@ -483,6 +483,11 @@ def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path)
 
 
 def _get_sheet_value(row: dict[str, object], column: str) -> str | int:
+    if column == DURATION_COLUMN:
+        existing_duration = row.get(DURATION_COLUMN)
+        if existing_duration not in (None, ""):
+            return existing_duration
+
     if column in OUTPUT_COLUMNS and all(key in row for key in CSV_COLUMNS):
         source_row: dict[str, str] = {key: str(row.get(key, "")) for key in CSV_COLUMNS}
         return _get_output_value(source_row, column)
