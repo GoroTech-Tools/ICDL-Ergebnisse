@@ -1,4 +1,4 @@
-﻿# Release Notes v5.0
+﻿# Release Notes v5.1
 
 Datum: 2026-07-04
 
@@ -24,22 +24,22 @@ Datum: 2026-07-04
 
 ## Artefakte
 
-- Build-Verzeichnis: dist/ICDL-Ergebnisse-v5.0/
-- EXE: dist/ICDL-Ergebnisse-v5.0/ICDL-Ergebnisse.exe
+- Build-Verzeichnis: dist/ICDL-Ergebnisse-v5.1/
+- EXE: dist/ICDL-Ergebnisse-v5.1/ICDL-Ergebnisse.exe
 - Dokumentation: dist/<Build>/docs/
-- Archivdaten: dist/ICDL-Ergebnisse-v5.0/archive/
-- Release-ZIP: release/ICDL-Ergebnisse-v5.0.zip
+- Archivdaten: dist/ICDL-Ergebnisse-v5.1/archive/
+- Release-ZIP: release/ICDL-Ergebnisse-v5.1.zip
 
 ## Enthaltene Commits (aktuelle Historie)
 
+- `b7513d7` docs: switch diagrams to svg
+- `d770bc6` release: v5.0
 - `7b8271a` docs: add mermaid diagrams and documentation
 - `f701d5a` release: v4.3
 - `b8a8776` feat: repeat automation for updated csv locations
-- `7a86ea9` release: v4.2
-- `103602c` fix: write export directly into archive to avoid root leftovers
 
 ## Technische Build-Informationen
 
-- Build-Datum: 2026-07-04 21:13:24
+- Build-Datum: 2026-07-04 21:17:32
 - Build-Modus: PyInstaller --noconfirm
 - EXE-Name: ICDL-Ergebnisse.exe
