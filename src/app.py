@@ -38,6 +38,15 @@ NBSP = "\u00A0"
 FONT_STYLE_TOKEN = "__ICDL_FONT_STYLE__"
 DATETIME_FORMATS = ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y")
 
+HEADER_ALIASES = {
+    "Name": ["name", "teilnehmer", "kandidat", "candidate"],
+    "Cert-ID": ["cert-id", "cert id", "certid", "certificate id", "kandidaten-id", "id"],
+    "Prüfung": ["prüfung", "pruefung", "exam", "modul", "test", "module"],
+    "Beginn": ["beginn", "start", "startzeit", "start time", "prüfungsbeginn", "pruefungsbeginn", "begin"],
+    "Ende": ["ende", "end", "endzeit", "end time", "prüfungsende", "pruefungsende", "finish"],
+    "Ergebnis": ["ergebnis", "result", "score", "punkte", "prozent", "percent"],
+}
+
 DESKTOP_FOLDERID = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
 DOWNLOADS_FOLDERID = "{374DE290-123F-4565-9164-39C4925E467B}"
 
@@ -87,7 +96,14 @@ def _read_examinations_csv(csv_path: Path) -> list[dict[str, str]]:
                 reader = csv.DictReader(f, delimiter=";")
                 rows = []
                 for row in reader:
-                    normalized = {k.strip(): (v.strip() if isinstance(v, str) else "") for k, v in row.items() if k}
+                    raw_normalized = {k.strip(): (v.strip() if isinstance(v, str) else "") for k, v in row.items() if k}
+                    normalized: dict[str, str] = {}
+                    for key, value in raw_normalized.items():
+                        canonical = _canonicalize_csv_header(key)
+                        # Bei doppelten/ähnlichen Headern den ersten nicht-leeren Wert behalten.
+                        if canonical in normalized and normalized[canonical]:
+                            continue
+                        normalized[canonical] = value
                     if any(normalized.values()):
                         rows.append(normalized)
                 return rows
@@ -95,6 +111,46 @@ def _read_examinations_csv(csv_path: Path) -> list[dict[str, str]]:
             last_error = exc
 
     raise RuntimeError(f"CSV konnte nicht gelesen werden: {last_error}")
+
+
+def _normalize_header_token(text: str) -> str:
+    token = (text or "").strip().lower()
+    token = token.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    token = re.sub(r"[^a-z0-9]+", " ", token)
+    token = re.sub(r"\s+", " ", token).strip()
+    return token
+
+
+_HEADER_ALIAS_LOOKUP = {
+    _normalize_header_token(alias): target
+    for target, aliases in HEADER_ALIASES.items()
+    for alias in aliases
+}
+
+
+def _canonicalize_csv_header(header: str) -> str:
+    stripped = (header or "").strip()
+    if not stripped:
+        return stripped
+
+    normalized = _normalize_header_token(stripped)
+    direct = _HEADER_ALIAS_LOOKUP.get(normalized)
+    if direct:
+        return direct
+
+    # Fallback-Heuristik für uneinheitliche Export-Header
+    if "beginn" in normalized or normalized.startswith("start"):
+        return "Beginn"
+    if "ende" in normalized or normalized.startswith("end"):
+        return "Ende"
+    if "ergebnis" in normalized or "result" in normalized or "score" in normalized:
+        return "Ergebnis"
+    if "pruefung" in normalized or "exam" in normalized or "modul" in normalized:
+        return "Prüfung"
+    if "cert" in normalized and "id" in normalized:
+        return "Cert-ID"
+
+    return stripped
 
 
 def _parse_exam_date(rows: list[dict[str, str]]) -> datetime:
@@ -1010,8 +1066,10 @@ catch {
 
 def process_file(csv_path: Path) -> ExportResult:
     result = process_csv_to_excel(csv_path)
-    _create_outlook_preview_mail(result.rows, result.exam_date, result.output_xlsx)
-    archived_xlsx = _archive_output_xlsx(result.output_xlsx)
+    try:
+        _create_outlook_preview_mail(result.rows, result.exam_date, result.output_xlsx)
+    finally:
+        archived_xlsx = _archive_output_xlsx(result.output_xlsx)
     return ExportResult(output_xlsx=archived_xlsx, exam_date=result.exam_date)
 
 
@@ -1494,22 +1552,38 @@ def run_gui() -> None:
                     _schedule_outlook_watchdog()
 
                     def outlook_worker() -> None:
+                        outlook_error: str | None = None
+                        archived_xlsx: Path | None = None
                         try:
                             _create_outlook_preview_mail(result.rows, result.exam_date, result.output_xlsx)
-                            archived_xlsx = _archive_output_xlsx(result.output_xlsx)
-                            _log_debug(f"Outlook-Vorschau erfolgreich geöffnet; Excel archiviert: {archived_xlsx}")
+                        except Exception as exc:
+                            _log_debug(f"Outlook-Fehler: {exc}")
+                            outlook_error = str(exc)
+                        finally:
+                            try:
+                                archived_xlsx = _archive_output_xlsx(result.output_xlsx)
+                                _log_debug(f"Excel archiviert: {archived_xlsx}")
+                            except Exception as archive_exc:
+                                _log_debug(f"Archivierung fehlgeschlagen: {archive_exc}")
 
+                        if outlook_error is None and archived_xlsx is not None:
                             def on_ok() -> None:
                                 _set_idle(f"Fertig: archive\\{archived_xlsx.name}")
 
                             root.after(0, on_ok)
-                        except Exception as exc:
-                            _log_debug(f"Outlook-Fehler: {exc}")
-                            err = str(exc)
+                        else:
+                            err = outlook_error or "Outlook-Vorschau konnte nicht erstellt werden."
 
                             def on_err() -> None:
                                 _set_idle("Fehler")
-                                messagebox.showerror(APP_TITLE, f"Fehler bei Outlook-Vorschau: {err}")
+                                if archived_xlsx is not None:
+                                    messagebox.showerror(
+                                        APP_TITLE,
+                                        f"Fehler bei Outlook-Vorschau: {err}\n\n"
+                                        f"Die Excel-Datei wurde dennoch archiviert unter:\n{archived_xlsx}",
+                                    )
+                                else:
+                                    messagebox.showerror(APP_TITLE, f"Fehler bei Outlook-Vorschau: {err}")
 
                             root.after(0, on_err)
 
