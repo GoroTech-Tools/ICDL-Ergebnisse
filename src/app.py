@@ -1441,9 +1441,9 @@ def run_gui() -> None:
 
     run_btn = ttk.Button(
         action_frame,
-        text="CSV einlesen und Mail-Vorschau erzeugen",
+        text="App starten",
         command=on_run,
-        style="Primary.TButton",
+        style="Secondary.TButton",
     )
     run_btn.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
