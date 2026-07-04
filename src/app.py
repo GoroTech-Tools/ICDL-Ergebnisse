@@ -1158,7 +1158,7 @@ def process_csv_to_excel(csv_path: Path) -> ProcessingResult:
 
 
 def _archive_output_xlsx(output_xlsx: Path) -> Path:
-    """Verschiebt die erzeugte Excel-Datei nach ./archive und überschreibt bei Bedarf."""
+    """Kopiert die erzeugte Excel-Datei nach ./archive und entfernt danach die Quelle robust."""
     archive_dir = _get_app_dir() / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_target = archive_dir / output_xlsx.name
@@ -1172,26 +1172,43 @@ def _archive_output_xlsx(output_xlsx: Path) -> Path:
     if not output_xlsx.exists() and archive_target.exists():
         return archive_target
 
-    last_error: Exception | None = None
-    for _ in range(6):
+    # 1) Robust nach archive kopieren
+    copy_error: Exception | None = None
+    for _ in range(8):
         try:
-            os.replace(output_xlsx, archive_target)
-            return archive_target
+            shutil.copy2(output_xlsx, archive_target)
+            copy_error = None
+            break
         except Exception as exc:
-            last_error = exc
+            copy_error = exc
             time.sleep(0.25)
 
-    # Fallback: kopieren + Quelle löschen (z. B. bei kurzzeitigen Locks/OneDrive-Rennen)
-    try:
-        shutil.copy2(output_xlsx, archive_target)
-        output_xlsx.unlink(missing_ok=True)
-        return archive_target
-    except Exception as exc:
-        if last_error is not None:
+    if copy_error is not None:
+        raise RuntimeError(f"Excel-Datei konnte nicht nach archive kopiert werden: {copy_error}") from copy_error
+
+    # 2) Quelle nach erfolgreicher Kopie aus Root entfernen
+    delete_error: Exception | None = None
+    for _ in range(12):
+        try:
+            output_xlsx.unlink(missing_ok=True)
+            if not output_xlsx.exists():
+                delete_error = None
+                break
+        except Exception as exc:
+            delete_error = exc
+        time.sleep(0.25)
+
+    if output_xlsx.exists():
+        if delete_error is not None:
             raise RuntimeError(
-                f"Excel-Datei konnte nicht nach archive verschoben werden: {last_error}; Fallback fehlgeschlagen: {exc}"
-            ) from exc
-        raise
+                "Excel-Datei wurde nach archive kopiert, konnte aber nicht aus dem App-Root entfernt werden: "
+                f"{delete_error}"
+            ) from delete_error
+        raise RuntimeError(
+            "Excel-Datei wurde nach archive kopiert, konnte aber nicht aus dem App-Root entfernt werden."
+        )
+
+    return archive_target
 
 
 def _archive_output_with_followup_retries(output_xlsx: Path) -> Path:
