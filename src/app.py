@@ -198,18 +198,75 @@ def _resolve_excel_base_font() -> Font | None:
 def _parse_datetime(value: str) -> datetime | None:
     if not value:
         return None
-    raw = value.strip()
+    raw = str(value).strip()
     if not raw:
         return None
 
-    for fmt in DATETIME_FORMATS:
-        try:
-            parsed = datetime.strptime(raw, fmt)
-            if fmt == "%d.%m.%Y":
-                return datetime(parsed.year, parsed.month, parsed.day, 0, 0)
-            return parsed
-        except ValueError:
-            continue
+    raw = raw.replace("\u00A0", " ")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    raw = re.sub(r"\bUhr\b", "", raw, flags=re.IGNORECASE).strip()
+
+    # ISO-8601 & Varianten (z. B. 2026-07-04T10:30:00Z / +02:00)
+    iso_candidate = raw
+    if iso_candidate.endswith("Z"):
+        iso_candidate = iso_candidate[:-1] + "+00:00"
+    try:
+        parsed_iso = datetime.fromisoformat(iso_candidate)
+        if parsed_iso.tzinfo is not None:
+            parsed_iso = parsed_iso.replace(tzinfo=None)
+        return parsed_iso
+    except ValueError:
+        pass
+
+    iso_candidate_space = iso_candidate.replace(" ", "T")
+    try:
+        parsed_iso = datetime.fromisoformat(iso_candidate_space)
+        if parsed_iso.tzinfo is not None:
+            parsed_iso = parsed_iso.replace(tzinfo=None)
+        return parsed_iso
+    except ValueError:
+        pass
+
+    # Häufige Normalisierungen für exportierte Texte
+    normalized_candidates = [raw]
+    if "/" in raw:
+        normalized_candidates.append(raw.replace("/", "."))
+    if "-" in raw:
+        normalized_candidates.append(raw.replace("-", "."))
+
+    extended_formats = (
+        *DATETIME_FORMATS,
+        "%d.%m.%y %H:%M",
+        "%d.%m.%y %H:%M:%S",
+        "%d.%m.%y",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d",
+        "%d-%m-%Y %H:%M",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y",
+    )
+
+    for candidate in normalized_candidates:
+        for fmt in extended_formats:
+            try:
+                parsed = datetime.strptime(candidate, fmt)
+                if fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d-%m-%Y"):
+                    return datetime(parsed.year, parsed.month, parsed.day, 0, 0)
+                return parsed
+            except ValueError:
+                continue
+
+    # Letzter Fallback: Datums-/Zeitteil aus freiem Text extrahieren
+    match = re.search(
+        r"(\d{1,4}[./-]\d{1,2}[./-]\d{1,4})\s+(\d{1,2}:\d{2}(?::\d{2})?)",
+        raw,
+    )
+    if match:
+        extracted = f"{match.group(1)} {match.group(2)}"
+        return _parse_datetime(extracted)
+
     return None
 
 
