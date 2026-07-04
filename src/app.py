@@ -1362,10 +1362,32 @@ def _resolve_initial_csv_dir() -> Path:
 
 
 def _find_daily_csv_candidate() -> Path | None:
-    for candidate in _iter_examinations_csv_candidates():
-        if _is_file_modified_today(candidate):
-            return candidate
+    candidates = _find_daily_csv_candidates()
+    if candidates:
+        return candidates[0]
     return None
+
+
+def _find_daily_csv_candidates() -> list[Path]:
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    for candidate in _iter_examinations_csv_candidates():
+        if not _is_file_modified_today(candidate):
+            continue
+
+        try:
+            normalized = str(candidate.resolve())
+        except Exception:
+            normalized = str(candidate)
+
+        if normalized in seen:
+            continue
+
+        seen.add(normalized)
+        found.append(candidate)
+
+    return found
 
 
 def _describe_csv_location(csv_path: Path) -> str:
@@ -1615,6 +1637,7 @@ def run_gui() -> None:
         running_flag["busy"] = True
         running_flag["phase"] = phase
         run_btn.state(["disabled"])
+        repeat_btn.state(["disabled"])
         docs_btn.state(["disabled"])
         if phase == "csv":
             _set_progress(35.0)
@@ -1628,6 +1651,7 @@ def run_gui() -> None:
         running_flag["busy"] = False
         running_flag["phase"] = "idle"
         run_btn.state(["!disabled"])
+        repeat_btn.state(["!disabled"])
         docs_btn.state(["!disabled"])
         if status_text.startswith("Fertig"):
             _set_progress(100.0, "Success.Horizontal.TProgressbar")
@@ -1758,6 +1782,104 @@ def run_gui() -> None:
             _log_debug(f"Öffnen des docs-Ordners fehlgeschlagen: {exc}")
             messagebox.showerror(APP_TITLE, f"Der docs-Ordner konnte nicht geöffnet werden:\n{exc}")
 
+    def on_repeat_automation() -> None:
+        if running_flag["busy"]:
+            return
+
+        candidates = _find_daily_csv_candidates()
+        if not candidates:
+            status_var.set("Keine aktualisierte CSV gefunden")
+            messagebox.showinfo(
+                APP_TITLE,
+                "In den drei Speicherorten wurde keine aktualisierte examinations.csv gefunden.",
+            )
+            return
+
+        work_items = [candidate for candidate in candidates if not _is_likely_duplicate_processing(candidate)]
+        skipped_items = [candidate for candidate in candidates if _is_likely_duplicate_processing(candidate)]
+
+        if not work_items:
+            status_var.set("Bereit")
+            messagebox.showinfo(
+                APP_TITLE,
+                "Gefundene examinations.csv-Dateien scheinen bereits verarbeitet zu sein.\n"
+                "Es gibt aktuell nichts zu wiederholen.",
+            )
+            return
+
+        _set_busy("csv", f"Automatik wird für {len(work_items)} Datei(en) wiederholt ...")
+        _log_debug(
+            "Automatik wiederholen gestartet: "
+            + ", ".join(str(path) for path in work_items)
+            + (" | übersprungen: " + ", ".join(str(path) for path in skipped_items) if skipped_items else "")
+        )
+
+        def repeat_worker() -> None:
+            successes: list[Path] = []
+            failures: list[str] = []
+            total = len(work_items)
+
+            for idx, csv_path in enumerate(work_items, start=1):
+                location_label = _describe_csv_location(csv_path)
+                root.after(
+                    0,
+                    lambda idx=idx, total=total, location_label=location_label: status_var.set(
+                        f"Automatik wiederholen ({idx}/{total}) – {location_label}"
+                    ),
+                )
+                root.after(0, lambda idx=idx, total=total: _set_progress((idx - 1) * 100.0 / total))
+
+                try:
+                    result = process_csv_to_excel(csv_path)
+                    _log_debug(f"Automatik wiederholen: CSV/Excel abgeschlossen: {result.output_xlsx}")
+
+                    outlook_error: str | None = None
+                    archived_xlsx: Path | None = None
+                    try:
+                        _create_outlook_preview_mail(result.rows, result.exam_date, result.output_xlsx)
+                    except Exception as exc:
+                        outlook_error = str(exc)
+                        _log_debug(f"Automatik wiederholen: Outlook-Fehler: {exc}")
+                    finally:
+                        try:
+                            archived_xlsx = _archive_output_with_followup_retries(result.output_xlsx)
+                            _log_debug(f"Automatik wiederholen: Excel archiviert: {archived_xlsx}")
+                        except Exception as archive_exc:
+                            failures.append(f"{csv_path}: Archivierung fehlgeschlagen: {archive_exc}")
+                            _log_debug(f"Automatik wiederholen: Archivierung fehlgeschlagen: {archive_exc}")
+
+                    if outlook_error is None and archived_xlsx is not None:
+                        successes.append(archived_xlsx)
+                    else:
+                        failures.append(f"{csv_path}: {outlook_error or 'Outlook-Vorschau konnte nicht erstellt werden.'}")
+                except Exception as exc:
+                    failures.append(f"{csv_path}: {exc}")
+                    _log_debug(f"Automatik wiederholen: Verarbeitung fehlgeschlagen ({csv_path}): {exc}")
+
+                root.after(0, lambda idx=idx, total=total: _set_progress((idx * 100.0) / total))
+
+            def finish() -> None:
+                if successes and not failures:
+                    _set_idle(f"Fertig: {len(successes)} Datei(en) nach archive verarbeitet")
+                elif successes:
+                    _set_idle(f"Fertig mit Hinweisen: {len(successes)} Datei(en) verarbeitet")
+                    messagebox.showwarning(
+                        APP_TITLE,
+                        "Automatik wurde wiederholt, aber mindestens eine Datei meldete Hinweise/Fehler.\n\n"
+                        + "\n".join(failures),
+                    )
+                else:
+                    _set_idle("Fehler")
+                    messagebox.showerror(
+                        APP_TITLE,
+                        "Automatik konnte für keine Datei abgeschlossen werden.\n\n"
+                        + "\n".join(failures),
+                    )
+
+            root.after(0, finish)
+
+        threading.Thread(target=repeat_worker, daemon=True).start()
+
     action_frame = ttk.Frame(content, style="Action.TFrame")
     action_frame.pack(fill="x", pady=(4, 10))
 
@@ -1768,6 +1890,14 @@ def run_gui() -> None:
         style="Secondary.TButton",
     )
     run_btn.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+    repeat_btn = ttk.Button(
+        action_frame,
+        text="Automatik wiederholen",
+        command=on_repeat_automation,
+        style="Secondary.TButton",
+    )
+    repeat_btn.pack(side="left", fill="x", expand=True, padx=(6, 6))
 
     docs_btn = ttk.Button(
         action_frame,
