@@ -31,6 +31,7 @@ APP_TITLE = "ICDL-Ergebnisse"
 RECIPIENT = "KG_Kaufleuteteam"
 CSV_COLUMNS = ["Name", "Cert-ID", "Prüfung", "Beginn", "Ende", "Ergebnis"]
 DURATION_COLUMN = "Benötigte Zeit"
+INVALID_DURATION_TEXT = "Fehlerhafte Zeitangabe"
 OUTPUT_COLUMNS = CSV_COLUMNS + [DURATION_COLUMN]
 NEW_DATA_CAPTURED_AT_COLUMN = "Erfasst am"
 NEW_DATA_COLUMNS = OUTPUT_COLUMNS + [NEW_DATA_CAPTURED_AT_COLUMN]
@@ -327,18 +328,27 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _compute_duration_minutes(row: dict[str, str]) -> int | None:
+    status, minutes = _compute_duration_status_and_minutes(row)
+    if status != "ok":
+        return None
+    return minutes
+
+
+def _compute_duration_status_and_minutes(row: dict[str, str]) -> tuple[str, int | None]:
     start_text = _extract_datetime_text_from_row(row, target="Beginn")
     end_text = _extract_datetime_text_from_row(row, target="Ende")
 
     start = _parse_datetime(start_text)
     end = _parse_datetime(end_text)
     if start is None or end is None:
-        return None
+        if (start_text or "").strip() or (end_text or "").strip():
+            return ("invalid", None)
+        return ("missing", None)
 
     minutes = int(round((end - start).total_seconds() / 60))
     if minutes < 0:
-        return None
-    return minutes
+        return ("negative", None)
+    return ("ok", minutes)
 
 
 def _extract_datetime_text_from_row(row: dict[str, str], target: str) -> str:
@@ -386,8 +396,12 @@ def _normalize_percent_text(value: str) -> str | None:
 
 def _get_output_value(row: dict[str, str], column: str) -> str | int:
     if column == DURATION_COLUMN:
-        minutes = _compute_duration_minutes(row)
-        return "" if minutes is None else minutes
+        status, minutes = _compute_duration_status_and_minutes(row)
+        if status == "ok" and minutes is not None:
+            return minutes
+        if status in ("invalid", "negative"):
+            return INVALID_DURATION_TEXT
+        return ""
 
     if column == "Ergebnis":
         raw = row.get(column, "")
@@ -398,8 +412,11 @@ def _get_output_value(row: dict[str, str], column: str) -> str | int:
 
 
 def _is_right_aligned_value(column: str, value: str | int) -> bool:
-    if column in ("Beginn", "Ende", DURATION_COLUMN):
+    if column in ("Beginn", "Ende"):
         return True
+
+    if column == DURATION_COLUMN:
+        return isinstance(value, int)
 
     if isinstance(value, int):
         return True
@@ -429,6 +446,25 @@ def _format_html_value(column: str, value: str | int) -> str:
     if column == DURATION_COLUMN and isinstance(value, int):
         return f"{value} min"
     return "" if value == "" else str(value)
+
+
+def _log_duration_issues(rows: list[dict[str, str]]) -> None:
+    for idx, row in enumerate(rows, start=2):
+        status, _ = _compute_duration_status_and_minutes(row)
+        if status not in ("invalid", "negative"):
+            continue
+
+        name = (row.get("Name") or "").strip()
+        cert_id = (row.get("Cert-ID") or "").strip()
+        start_text = _extract_datetime_text_from_row(row, target="Beginn")
+        end_text = _extract_datetime_text_from_row(row, target="Ende")
+        reason = "negativer Zeitwert" if status == "negative" else "ungültiges Zeitformat"
+
+        _log_debug(
+            "Dauerberechnung fehlgeschlagen "
+            f"(Zeile {idx}, Name='{name}', Cert-ID='{cert_id}', Grund='{reason}', "
+            f"Beginn='{start_text}', Ende='{end_text}')"
+        )
 
 
 def _normalize_key_value(value: object) -> str:
@@ -1110,6 +1146,8 @@ def process_csv_to_excel(csv_path: Path) -> ProcessingResult:
     rows = _read_examinations_csv(csv_path)
     if not rows:
         raise ValueError("Die CSV-Datei enthält keine Datenzeilen.")
+
+    _log_duration_issues(rows)
 
     exam_date = _resolve_reference_datetime(csv_path, rows)
     output_xlsx = _build_output_path(csv_path)
