@@ -10,7 +10,7 @@
 
 ## Diagramme
 
-- Die zentralen Abläufe sind in `docs/DOKUMENTATION_DIAGRAMME.md` als Mermaid-Diagramme und SVG-Dateien dokumentiert.
+- Die zentralen Abläufe sind in `docs/DOKUMENTATION_DIAGRAMME.md` als Mermaid-Diagramme und SVG-Diagramme dokumentiert.
 - Die neue Schaltfläche **Automatik wiederholen** triggert dieselbe Suchreihenfolge wie der Auto-Start:
   1. App-/EXE-Ordner
   2. Desktop

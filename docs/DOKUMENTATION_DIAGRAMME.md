@@ -1,6 +1,6 @@
 # ICDL-Ergebnisse – Diagrammdokumentation
 
-Diese Seite sammelt die wichtigsten Abläufe als Mermaid-Diagramme und verweist auf die gerenderten SVG-Dateien.
+Diese Seite bündelt die wichtigsten Abläufe als Mermaid-Diagramme und verweist auf die gerenderten SVG-Dateien.
 
 ## Anwenderablauf
 
@@ -68,5 +68,5 @@ flowchart LR
 ## Hinweise
 
 - Die Mermaid-Quellen liegen zusätzlich als `.mmd`-Dateien unter `docs/diagramme/`.
-- Die SVG-Dateien dienen zur direkten Einbindung in Markdown und Release-Dokumentationen; sie skalieren verlustfrei und bleiben auch bei Vergrößerung scharf.
+- Die SVG-Diagramme eignen sich gut für Markdown und Release-Dokumentationen, weil sie verlustfrei skalieren und auch bei Vergrößerung scharf bleiben.
 - Für die Build-Ausgabe werden die Doku-Dateien weiterhin mitkopiert; die Diagramm-Bilder liegen damit ebenfalls im Build.
