@@ -31,3 +31,6 @@ logs/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Lokale Screenshots / Arbeitsmaterial
+material/
