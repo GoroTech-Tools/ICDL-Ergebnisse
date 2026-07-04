@@ -1,4 +1,4 @@
-﻿# Release Notes v3.2
+﻿# Release Notes v3.3
 
 Datum: 2026-07-04
 
@@ -24,22 +24,22 @@ Datum: 2026-07-04
 
 ## Artefakte
 
-- Build-Verzeichnis: dist/ICDL-Ergebnisse-v3.2/
-- EXE: dist/ICDL-Ergebnisse-v3.2/ICDL-Ergebnisse.exe
+- Build-Verzeichnis: dist/ICDL-Ergebnisse-v3.3/
+- EXE: dist/ICDL-Ergebnisse-v3.3/ICDL-Ergebnisse.exe
 - Dokumentation: dist/<Build>/docs/
-- Archivdaten: dist/ICDL-Ergebnisse-v3.2/archive/
-- Release-ZIP: release/ICDL-Ergebnisse-v3.2.zip
+- Archivdaten: dist/ICDL-Ergebnisse-v3.3/archive/
+- Release-ZIP: release/ICDL-Ergebnisse-v3.3.zip
 
 ## Enthaltene Commits (aktuelle Historie)
 
+- `515c5d9` ui: rename primary action button to App starten
+- `82b3f38` fix: harden onefile extraction for tkinter tzdata
 - `57f8268` release: v3.1
 - `b645250` fix: consolidate root exports into archive
 - `08a4354` release: v3.0
-- `df8d432` fix: archive path always relative to app directory
-- `a216f07` chore: ignore local material folder
 
 ## Technische Build-Informationen
 
-- Build-Datum: 2026-07-04 19:28:30
+- Build-Datum: 2026-07-04 19:40:13
 - Build-Modus: PyInstaller --noconfirm
 - EXE-Name: ICDL-Ergebnisse.exe
