@@ -7,6 +7,10 @@ ICON_PATH = os.path.join(ROOT, 'app_icon.ico')
 EXE_ICON = ICON_PATH if os.path.exists(ICON_PATH) else None
 DATA_FILES = [(ICON_PATH, '.')] if os.path.exists(ICON_PATH) else []
 
+LOCALAPPDATA = os.environ.get('LOCALAPPDATA', ROOT)
+RUNTIME_TMPDIR = os.path.join(LOCALAPPDATA, 'ICDL-Ergebnisse', '_runtime')
+os.makedirs(RUNTIME_TMPDIR, exist_ok=True)
+
 
 a = Analysis(
     [os.path.join(ROOT, 'app.py')],
@@ -33,9 +37,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
+    runtime_tmpdir=RUNTIME_TMPDIR,
     console=False,
     icon=EXE_ICON,
     disable_windowed_traceback=False,
