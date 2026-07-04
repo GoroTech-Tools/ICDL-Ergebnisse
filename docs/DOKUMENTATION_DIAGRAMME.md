@@ -1,6 +1,6 @@
 # ICDL-Ergebnisse – Diagrammdokumentation
 
-Diese Seite sammelt die wichtigsten Abläufe als Mermaid-Diagramme und verweist auf die gerenderten PNG-Dateien.
+Diese Seite sammelt die wichtigsten Abläufe als Mermaid-Diagramme und verweist auf die gerenderten SVG-Dateien.
 
 ## Anwenderablauf
 
@@ -21,7 +21,7 @@ flowchart TD
     K -- Nein --> L[Keine weitere Aktion]
 ```
 
-![Anwenderablauf](diagramme/anwender_ablauf.png)
+![Anwenderablauf](diagramme/anwender_ablauf.svg)
 
 ## Technischer Überblick
 
@@ -63,10 +63,10 @@ flowchart LR
     B1 -->|Automatik wiederholen| A3
 ```
 
-![Technischer Überblick](diagramme/technik_ueberblick.png)
+![Technischer Überblick](diagramme/technik_ueberblick.svg)
 
 ## Hinweise
 
 - Die Mermaid-Quellen liegen zusätzlich als `.mmd`-Dateien unter `docs/diagramme/`.
-- Die PNG-Dateien dienen zur direkten Einbindung in Markdown und Release-Dokumentationen.
+- Die SVG-Dateien dienen zur direkten Einbindung in Markdown und Release-Dokumentationen; sie skalieren verlustfrei und bleiben auch bei Vergrößerung scharf.
 - Für die Build-Ausgabe werden die Doku-Dateien weiterhin mitkopiert; die Diagramm-Bilder liegen damit ebenfalls im Build.

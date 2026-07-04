@@ -51,7 +51,7 @@ python src/app.py
 
 - Anwender: `docs/DOKUMENTATION_ANWENDER.md`
 - Technik: `docs/DOKUMENTATION_TECHNIK.md`
-- Diagramme: `docs/DOKUMENTATION_DIAGRAMME.md` (inkl. Mermaid-Quellen und PNG-Dateien)
+- Diagramme: `docs/DOKUMENTATION_DIAGRAMME.md` (inkl. Mermaid-Quellen und SVG-Dateien)
 
 ## Build
 
