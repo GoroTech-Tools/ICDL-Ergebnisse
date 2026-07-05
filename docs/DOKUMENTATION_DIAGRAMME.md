@@ -12,9 +12,10 @@ flowchart TD
     C --> E[CSV verarbeiten]
     D --> E
     E --> F[Excel-Datei erzeugen]
-    F --> G[Outlook-Vorschau mit Tabelleninhalt öffnen]
+    F --> G[Outlook-Vorschau mit Tabelleninhalt aus Ergebnisse öffnen]
     G --> H[Excel direkt in archive ablegen]
-    H --> I[Automatik wiederholen verfügbar]
+    H --> H2[Ergebnisdatei öffnen verfügbar]
+    H2 --> I[Automatik wiederholen verfügbar]
     I --> J[Erneute Suche in App-, Desktop- und Downloads-Ordner]
     J --> K{Neue oder aktualisierte CSV gefunden?}
     K -- Ja --> E
@@ -39,6 +40,7 @@ flowchart LR
         B3[Excel-Erzeugung\nopenpyxl]
         B4[Outlook-Vorschau\nPowerShell + COM]
         B5[Archivierung\narchive/]
+        B6[Statistik-Filter\nDatenschnitt/Tabellenfilter]
     end
 
     subgraph Artefakte
@@ -54,6 +56,7 @@ flowchart LR
     B1 --> B2
     B2 --> B3
     B3 --> C2
+    B3 --> B6
     C2 --> B4
     B4 --> B5
     B5 --> C3

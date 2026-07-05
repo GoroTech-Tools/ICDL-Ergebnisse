@@ -7,6 +7,7 @@
 - CSV-Import (`csv.DictReader`, Semikolon)
 - Excel-Erzeugung (`openpyxl`)
 - Outlook-Integration über COM (PowerShell + Outlook/WordEditor)
+- Tabellenbasierte Statistik-Auswertung inkl. Datenschnitt-Ergänzung (best effort via Excel COM)
 
 ## Diagramme
 
@@ -19,13 +20,21 @@
 ## Datenfluss
 
 1. CSV laden und normalisieren
-2. Prüfungsdatum ermitteln
-3. Excel-Datei schreiben (inkl. Ausrichtung, Zusatzspalte „Benötigte Zeit“)
-4. Outlook-E-Mail erzeugen
+1. Prüfungsdatum ermitteln
+1. Excel-Datei schreiben (inkl. Ausrichtung, Zusatzspalte „Benötigte Zeit“)
+
+- Blatt `Ergebnisse` (aktueller Lauf)
+- Blatt `Neue Daten` (kumuliert, inkl. `Erfasst am`, `Jahr`, `Monat`, `Bestanden`)
+- Blatt `Statistik` (Name/Cert-ID + Prüfungs-Matrix mit `x` bei bestanden)
+- Bedingte Formatierung: `Ergebnis < 75%` wird hervorgehoben
+
+1. Outlook-E-Mail erzeugen
    - Text in Compose-Body
-   - Tabelle aus Excel per `PasteExcelTable` (Quellformatierung)
-   - Excel-Datei als Attachment
-5. Nach erfolgreicher Outlook-Erzeugung Excel-Datei nach `archive\\` verschieben
+
+- Tabelle aus Blatt `Ergebnisse` per `PasteExcelTable` (Quellformatierung)
+- Excel-Datei als Attachment
+
+1. Nach erfolgreicher Outlook-Erzeugung Excel-Datei nach `archive\\` verschieben
 
 - vorhandene Zieldateien werden per `os.replace(...)` ohne Rückfrage überschrieben
 
@@ -73,7 +82,17 @@ Beispiele:
 
 - Outlook-Automatikstart mit Retry-Logik, falls Outlook noch nicht läuft.
 - Tabellenübertragung aus Excel via Zwischenablage, um Formatierungsabweichungen durch HTML-Rendering zu vermeiden.
+- Für die Statistik wird bewusst eine stabile Tabellen-Auswertung verwendet (kein Pivot-Spill-Zwang), um `#ÜBERLAUF!`-Effekte in Office-Varianten zu vermeiden.
+- Datenschnitte für `Jahr`/`Monat` werden über COM best effort ergänzt; bei fehlender Office-Unterstützung bleibt die Filterbarkeit über Tabellenfilter erhalten.
 - UTF-8 mit BOM für temporäre PowerShell-Skripte (Umlaute in Fehlermeldungen).
+
+## GUI-Details
+
+- Neuer Button `Ergebnisdatei öffnen` unterhalb des Fortschrittsbalkens (rechtsbündig).
+- Button-Zustand:
+  - Initial deaktiviert
+  - Aktiv nach erfolgreicher Dateierzeugung in der aktuellen Sitzung
+  - Öffnet die zuletzt erzeugte Archivdatei per `os.startfile`/Explorer-Fallback.
 
 ## Wartung
 

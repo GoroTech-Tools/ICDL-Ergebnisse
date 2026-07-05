@@ -7,32 +7,34 @@ Diese App erledigt folgenden Ablauf:
 2. Alternativ CSV manuell auswählen (Semikolon-getrennt)
 3. Daten in eine Excel-Datei `ICDL-Ergebnisse_YYYYMMDD_HHMMSS.xlsx` schreiben
    - Zeitstempel basiert auf dem Änderungsdatum der CSV-Datei
-   - Enthält die Blätter `Ergebnisse` und `Neue Daten`
-   - `Neue Daten` wird über Läufe hinweg fortgeschrieben (kumuliert) und enthält zusätzlich `Erfasst am`
+   - Enthält die Blätter `Ergebnisse`, `Neue Daten` und `Statistik`
+   - `Neue Daten` wird über Läufe hinweg fortgeschrieben (kumuliert) und enthält zusätzlich `Erfasst am`, `Jahr`, `Monat`, `Bestanden`
+   - `Statistik` enthält eine auswertbare Matrix (`x` bei Ergebnis `>= 75%`) inkl. Filterbarkeit über `Jahr`/`Monat`
 4. Neue Outlook-E-Mail erzeugen
    - Empfänger: `KG_Kaufleuteteam`
    - Betreff: `ICDL-Ergebnisse der Prüfung vom DD.MM.YYYY`
-   - Inhalt: kopierte Datentabelle im Nachrichtentext
+   - Inhalt: kopierte Datentabelle aus Blatt `Ergebnisse` im Nachrichtentext
 5. E-Mail als Vorschau öffnen
 6. Schaltfläche `Automatik wiederholen` nutzen
    - Sucht erneut in den drei Automatik-Speicherorten nach aktualisierten `examinations.csv`
    - Verarbeitet gefundene Dateien automatisch, wenn sie noch nicht als erledigt erkannt wurden
 7. Erzeugte Excel-Datei direkt in `archive/` ablegen
 8. Beim Start automatische Archivpflege: In `archive/` bleiben nur die 10 neuesten Excel-Dateien erhalten
+9. Schaltfläche `Ergebnisdatei öffnen` (unter dem Fortschrittsbalken, rechtsbündig)
+   - wird aktiv, sobald in der aktuellen Sitzung eine neue Ergebnisdatei erzeugt wurde
+   - öffnet die zuletzt erzeugte Excel-Datei direkt
 
-## Neu in v4.3
+## Neu in v5.9
 
-- Fenster-Titelleisten-Icon robust eingebunden (inkl. Runtime-Fallback im EXE-Betrieb)
-- GUI-Layout modernisiert (ruhigeres Card-/Header-Design, klarere Typografie, bessere Abstände)
-- Mehr Übersicht im Ablaufbereich und optimierte Aktionsleiste
-- Excel: Neues Blatt `Neue Daten` mit laufübergreifender Sammlung und Zeitstempel `Erfasst am`
-- Archivpflege: Beim Start werden alte Excel-Dateien in `archive/` automatisch bereinigt (nur letzte 10 bleiben)
-- Neue Schaltfläche `Automatik wiederholen`: findet aktualisierte `examinations.csv` an den drei Automatik-Speicherorten und verarbeitet sie automatisch
-- Exportdateien werden direkt im `archive/`-Ordner erzeugt, damit kein Rest im EXE-Root bleibt
+- Bedingte Formatierung in Excel: Datensätze mit `Ergebnis < 75%` werden in allen relevanten Tabellenblättern hervorgehoben.
+- Statistik-Auswertung als stabiles Blatt `Statistik` ohne Pivot-Spill-Fehler (`#ÜBERLAUF!`-Robustheit).
+- Datenschnitte auf `Statistik` für `Jahr`/`Monat` werden per COM best effort ergänzt.
+- Outlook-Kopie nutzt explizit das Blatt `Ergebnisse` (nicht mehr abhängig von Blattreihenfolge).
+- Neuer GUI-Button `Ergebnisdatei öffnen` unter dem Fortschrittsbalken (rechtsbündig, initial deaktiviert).
 
 Aktuelles Release:
 
-- `v4.3`: <https://github.com/GoroTech-Tools/ICDL-Ergebnisse/releases/tag/v4.3>
+- `v5.9`: <https://github.com/GoroTech-Tools/ICDL-Ergebnisse/releases/tag/v5.9>
 
 Beispiel-/Demodaten liegen unter:
 

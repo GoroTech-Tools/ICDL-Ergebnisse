@@ -28,6 +28,9 @@ Die Anwendung `ICDL-Ergebnisse` automatisiert den Ablauf:
 - **App starten**: verarbeitet eine ausgewählte oder automatisch gefundene `examinations.csv`.
 - **Automatik wiederholen**: sucht erneut in den drei Automatik-Speicherorten nach aktualisierten `examinations.csv` und verarbeitet diese automatisch, falls sie noch nicht als erledigt erkannt wurden.
 - **Dokumentation öffnen**: öffnet den Dokumentationsordner im Explorer.
+- **Ergebnisdatei öffnen**: öffnet die zuletzt in der aktuellen Sitzung erzeugte Excel-Datei.
+  - Position: unterhalb des Fortschrittsbalkens, rechtsbündig
+  - Startzustand: deaktiviert, bis eine neue Ergebnisdatei erzeugt wurde
 
 ### Verhalten beim Start
 
@@ -52,13 +55,18 @@ Weitere Ablauf- und Architekturdiagramme sind in `docs/DOKUMENTATION_DIAGRAMME.m
   - Blatt `Ergebnisse`: enthält alle Datensätze des aktuellen CSV-Laufs.
   - Blatt `Neue Daten`: enthält eine laufübergreifende Sammlung neu hinzugekommener Datensätze.
     - Neue Zeilen werden bei jedem Lauf an die bestehende Sammlung angehängt.
-    - Zusätzliche Spalte `Erfasst am` dokumentiert den Zeitpunkt der Aufnahme.
+    - Zusätzliche Spalten `Erfasst am`, `Jahr`, `Monat`, `Bestanden` dienen Verlauf und Auswertung.
+  - Blatt `Statistik`: auswertbare Übersicht mit Name/Cert-ID und Prüfungs-Spalten.
+    - Kennzeichnung: `x` bei `Ergebnis >= 75%`, sonst leer.
+    - Filterung: über `Jahr`/`Monat` (Datenschnitt/Tabellenfilter je nach Office-Umgebung).
+- Excel-Formatierung:
+  - Datensätze mit `Ergebnis < 75%` werden visuell hervorgehoben.
 - Nach erfolgreicher Verarbeitung und Outlook-Vorschau wird die erzeugte Excel-Datei automatisch nach `archive\` verschoben.
 - Existiert dort bereits eine Datei mit gleichem Namen, wird sie ohne Rückfrage überschrieben.
 - Outlook-E-Mail-Vorschau mit:
   - Empfänger `KG_Kaufleuteteam`
   - Betreff mit Prüfungsdatum
-  - Tabelle aus Excel (Quellformatierung beibehalten)
+  - Tabelle aus Blatt `Ergebnisse` (Quellformatierung beibehalten)
   - Excel-Datei als Anlage
 
 ## Hinweise

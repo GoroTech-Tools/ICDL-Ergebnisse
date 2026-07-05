@@ -22,8 +22,11 @@ from tkinter import filedialog, messagebox, ttk
 import tkinter as tk
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment
 from openpyxl.styles import Font
+from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
@@ -34,7 +37,15 @@ DURATION_COLUMN = "Benötigte Zeit"
 INVALID_DURATION_TEXT = "Fehlerhafte Zeitangabe"
 OUTPUT_COLUMNS = CSV_COLUMNS + [DURATION_COLUMN]
 NEW_DATA_CAPTURED_AT_COLUMN = "Erfasst am"
-NEW_DATA_COLUMNS = OUTPUT_COLUMNS + [NEW_DATA_CAPTURED_AT_COLUMN]
+NEW_DATA_YEAR_COLUMN = "Jahr"
+NEW_DATA_MONTH_COLUMN = "Monat"
+NEW_DATA_PASSED_COLUMN = "Bestanden"
+NEW_DATA_COLUMNS = OUTPUT_COLUMNS + [
+    NEW_DATA_CAPTURED_AT_COLUMN,
+    NEW_DATA_YEAR_COLUMN,
+    NEW_DATA_MONTH_COLUMN,
+    NEW_DATA_PASSED_COLUMN,
+]
 NBSP = "\u00A0"
 FONT_STYLE_TOKEN = "__ICDL_FONT_STYLE__"
 DATETIME_FORMATS = ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y")
@@ -412,6 +423,28 @@ def _normalize_percent_text(value: str) -> str | None:
     return f"{number}{NBSP}%"
 
 
+def _parse_percent_value(value: object) -> float | None:
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    text = text.replace(NBSP, " ")
+    text = text.replace("%", "")
+    text = text.replace(" ", "")
+    text = text.replace(",", ".")
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _get_output_value(row: dict[str, str], column: str) -> str | int:
     if column == DURATION_COLUMN:
         status, minutes = _compute_duration_status_and_minutes(row)
@@ -505,6 +538,23 @@ def _build_row_key_from_source_row(row: dict[str, str]) -> tuple[str, ...]:
 
 def _build_row_key_from_materialized_row(row: dict[str, object]) -> tuple[str, ...]:
     return tuple(_normalize_key_value(row.get(col, "")) for col in OUTPUT_COLUMNS)
+
+
+def _build_new_data_derived_fields(row_values: dict[str, object]) -> dict[str, object]:
+    captured_at_text = _normalize_key_value(row_values.get(NEW_DATA_CAPTURED_AT_COLUMN, ""))
+
+    begin_text = _normalize_key_value(row_values.get("Beginn", ""))
+    reference_dt = _parse_datetime(begin_text)
+    if reference_dt is None:
+        reference_dt = _parse_datetime(captured_at_text)
+
+    result_value = _parse_percent_value(row_values.get("Ergebnis", ""))
+
+    return {
+        NEW_DATA_YEAR_COLUMN: reference_dt.year if reference_dt is not None else "",
+        NEW_DATA_MONTH_COLUMN: reference_dt.month if reference_dt is not None else "",
+        NEW_DATA_PASSED_COLUMN: 1 if (result_value is not None and result_value >= 75) else 0,
+    }
 
 
 def _find_latest_archived_output(output_dir: Path) -> Path | None:
@@ -639,19 +689,24 @@ def _read_rows_from_existing_sheet(
     return result_rows
 
 
-def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path) -> list[dict[str, str]]:
+def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path) -> list[dict[str, object]]:
     latest_archive = _find_latest_archived_output(output_dir)
     if latest_archive is None:
         captured_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        return [
-            {
+        initial_rows: list[dict[str, object]] = []
+        for row in rows:
+            row_values: dict[str, object] = {
                 **{col: _get_output_value(row, col) for col in OUTPUT_COLUMNS},
                 NEW_DATA_CAPTURED_AT_COLUMN: captured_at,
             }
-            for row in rows
-        ]
+            row_values.update(_build_new_data_derived_fields(row_values))
+            initial_rows.append(row_values)
+        return initial_rows
 
     previous_history_rows = _read_rows_from_existing_sheet(latest_archive, "Neue Daten", NEW_DATA_COLUMNS)
+    for previous_row in previous_history_rows:
+        previous_row.update(_build_new_data_derived_fields(previous_row))
+
     previous_history_keys = {
         _build_row_key_from_materialized_row(previous_row) for previous_row in previous_history_rows
     }
@@ -667,6 +722,7 @@ def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path)
                 if row_key in previous_history_keys:
                     continue
                 materialized_row[NEW_DATA_CAPTURED_AT_COLUMN] = captured_at
+                materialized_row.update(_build_new_data_derived_fields(materialized_row))
                 current_run_new_rows.append(materialized_row)
     else:
         captured_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
@@ -677,6 +733,7 @@ def _compute_new_data_history_rows(rows: list[dict[str, str]], output_dir: Path)
                 continue
             materialized_row = {col: _get_output_value(row, col) for col in OUTPUT_COLUMNS}
             materialized_row[NEW_DATA_CAPTURED_AT_COLUMN] = captured_at
+            materialized_row.update(_build_new_data_derived_fields(materialized_row))
             current_run_new_rows.append(materialized_row)
 
     return previous_history_rows + current_run_new_rows
@@ -696,6 +753,398 @@ def _get_sheet_value(row: dict[str, object], column: str) -> str | int:
     if value is None:
         return ""
     return value
+
+
+def _resolve_statistics_datetime(row: dict[str, object]) -> datetime | None:
+    for column in ("Beginn", NEW_DATA_CAPTURED_AT_COLUMN):
+        value = row.get(column, "")
+        parsed = _parse_datetime(str(value))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _build_statistics_data(
+    new_data_history_rows: list[dict[str, object]],
+) -> tuple[list[str], list[dict[str, object]]]:
+    exam_names: set[str] = set()
+    row_keys: set[tuple[int | str, int | str, str, str]] = set()
+    passed_exam_by_key: dict[tuple[int | str, int | str, str, str], set[str]] = {}
+
+    for row in new_data_history_rows:
+        name = str(row.get("Name", "")).strip()
+        cert_id = str(row.get("Cert-ID", "")).strip()
+        exam = str(row.get("Prüfung", "")).strip()
+
+        if not name and not cert_id:
+            continue
+
+        dt = _resolve_statistics_datetime(row)
+        year: int | str = dt.year if dt is not None else ""
+        month: int | str = dt.month if dt is not None else ""
+
+        row_key = (year, month, name, cert_id)
+        row_keys.add(row_key)
+
+        if exam:
+            exam_names.add(exam)
+            result_value = _parse_percent_value(row.get("Ergebnis", ""))
+            if result_value is not None and result_value >= 75:
+                passed_exam_by_key.setdefault(row_key, set()).add(exam)
+
+    sorted_exam_names = sorted(exam_names, key=lambda value: value.lower())
+    columns = ["Jahr", "Monat", "Name", "Cert-ID", *sorted_exam_names]
+
+    def _sort_key(item: tuple[int | str, int | str, str, str]) -> tuple[int, int, str, str]:
+        year_value, month_value, name_value, cert_value = item
+        year_num = year_value if isinstance(year_value, int) else 0
+        month_num = month_value if isinstance(month_value, int) else 0
+        return (year_num, month_num, name_value.lower(), cert_value.lower())
+
+    statistics_rows: list[dict[str, object]] = []
+    for row_key in sorted(row_keys, key=_sort_key):
+        year, month, name, cert_id = row_key
+        row_data: dict[str, object] = {
+            "Jahr": year,
+            "Monat": month,
+            "Name": name,
+            "Cert-ID": cert_id,
+        }
+
+        passed_exams = passed_exam_by_key.get(row_key, set())
+        for exam_name in sorted_exam_names:
+            row_data[exam_name] = "x" if exam_name in passed_exams else ""
+
+        statistics_rows.append(row_data)
+
+    return columns, statistics_rows
+
+
+def _set_statistics_sheet_column_widths(ws, columns: list[str]) -> None:
+    for col_idx, col_name in enumerate(columns, start=1):
+        col_letter = get_column_letter(col_idx)
+        if col_name == "Jahr":
+            ws.column_dimensions[col_letter].width = 9
+        elif col_name == "Monat":
+            ws.column_dimensions[col_letter].width = 9
+        elif col_name == "Name":
+            ws.column_dimensions[col_letter].width = 28
+        elif col_name == "Cert-ID":
+            ws.column_dimensions[col_letter].width = 14
+        else:
+            ws.column_dimensions[col_letter].width = 20
+
+
+def _enhance_statistics_with_pivot_and_slicers(output_xlsx: Path) -> None:
+    """Ergänzt Datenschnitte für 'Jahr' und 'Monat' auf dem Blatt 'Statistik'.
+
+    Stabiler Fallback gegenüber Pivot-Varianten: Die vorhandene Statistik-Tabelle
+    bleibt erhalten; es werden nur Slicer auf der ListObject-Tabelle ergänzt.
+    """
+    app_log = _get_logs_dir() / "app.log"
+    temp_dir = Path(tempfile.gettempdir())
+    stamp = f"{datetime.now():%Y%m%d_%H%M%S_%f}"
+    status_file = temp_dir / f"icdl_pivot_status_{stamp}.txt"
+    payload_file = temp_dir / f"icdl_pivot_payload_{stamp}.json"
+    ps_file = temp_dir / f"icdl_pivot_{stamp}.ps1"
+
+    payload = {
+        "workbook": str(output_xlsx),
+        "status": str(status_file),
+        "log": str(app_log),
+    }
+    payload_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    ps_script = """
+param([Parameter(Mandatory=$true)][string]$PayloadPath)
+$ErrorActionPreference = 'Stop'
+
+function Write-Status([string]$Text) {
+    Set-Content -Path $payload.status -Value $Text -Encoding UTF8
+}
+
+function Get-OrCreateSlicerCache($workbook, $table, [string]$fieldName) {
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        # 1) Bereits vorhandenen Cache mit passendem Feld wiederverwenden
+        for ($i = 1; $i -le $workbook.SlicerCaches.Count; $i++) {
+            try {
+                $cache = $workbook.SlicerCaches.Item($i)
+                $sourceName = '' + $cache.SourceName
+                $sourceNameStandard = '' + $cache.SourceNameStandard
+                if ($sourceName -eq $fieldName -or $sourceNameStandard -eq $fieldName) {
+                    return $cache
+                }
+            } catch {}
+        }
+
+        # 2) Neu erzeugen (Add2 bevorzugt)
+        try {
+            $created = $workbook.SlicerCaches.Add2($table, $fieldName)
+            if ($null -ne $created) { return $created }
+        } catch {}
+
+        try {
+            $created = $workbook.SlicerCaches.Add($table, $fieldName)
+            if ($null -ne $created) { return $created }
+        } catch {}
+
+        # 3) Falls Excel implizit einen Cache angelegt hat, erneut suchen
+        for ($i = 1; $i -le $workbook.SlicerCaches.Count; $i++) {
+            try {
+                $cache = $workbook.SlicerCaches.Item($i)
+                $sourceName = '' + $cache.SourceName
+                $sourceNameStandard = '' + $cache.SourceNameStandard
+                if ($sourceName -eq $fieldName -or $sourceNameStandard -eq $fieldName) {
+                    return $cache
+                }
+            } catch {}
+        }
+
+        Start-Sleep -Milliseconds 120
+    }
+
+    return $null
+}
+
+function Add-SlicerForField($workbook, $table, $sheet, [string]$fieldName, [string]$caption, [double]$left, [double]$top, [double]$width, [double]$height) {
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            $cache = Get-OrCreateSlicerCache $workbook $table $fieldName
+            if ($null -eq $cache) {
+                Start-Sleep -Milliseconds 120
+                continue
+            }
+
+            $slicer = $null
+            try {
+                $slicer = $cache.Slicers.Add($sheet)
+            }
+            catch {
+                # Fallback-Variante mit Positionsparametern
+                try {
+                    $slicer = $cache.Slicers.Add($sheet, $null, $null, $caption, $left, $top, $width, $height)
+                } catch {}
+            }
+
+            if ($null -eq $slicer) {
+                Start-Sleep -Milliseconds 120
+                continue
+            }
+
+            try { $slicer.Caption = $caption } catch {}
+            try { $slicer.Top = $top } catch {}
+            try { $slicer.Left = $left } catch {}
+            try { $slicer.Width = $width } catch {}
+            try { $slicer.Height = $height } catch {}
+
+            return $true
+        }
+        catch {
+            Start-Sleep -Milliseconds 120
+        }
+    }
+
+    return $false
+}
+
+try {
+    $payload = Get-Content -Path $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not (Test-Path -LiteralPath $payload.workbook)) {
+        throw 'Arbeitsmappe für Statistik-Slicer-Erstellung nicht gefunden.'
+    }
+
+    $excel = $null
+    $wb = $null
+    $saveChanges = $false
+
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false
+        $excel.DisplayAlerts = $false
+
+        $wb = $excel.Workbooks.Open($payload.workbook)
+
+        $statsSheet = $null
+        try { $statsSheet = $wb.Worksheets.Item('Statistik') } catch {}
+        if ($null -eq $statsSheet) {
+            throw "Das Tabellenblatt 'Statistik' wurde nicht gefunden."
+        }
+
+        $statsTable = $null
+        try { $statsTable = $statsSheet.ListObjects.Item('ICDLStatistik') } catch {}
+        if ($null -eq $statsTable) {
+            throw "Die Excel-Tabelle 'ICDLStatistik' wurde nicht gefunden."
+        }
+
+        foreach ($requiredField in @('Jahr', 'Monat')) {
+            try {
+                [void]$statsTable.ListColumns.Item($requiredField)
+            }
+            catch {
+                throw "Erforderliches Feld '$requiredField' fehlt in 'ICDLStatistik'."
+            }
+        }
+
+        try {
+            $yearOk = Add-SlicerForField $wb $statsTable $statsSheet 'Jahr' 'Jahr' 20 20 120 140
+            if (-not $yearOk) {
+                throw "Slicer für Feld 'Jahr' konnte nicht erstellt werden."
+            }
+        }
+        catch {
+            try {
+                Add-Content -Path $payload.log -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] Statistik-Slicer-Hinweis (Jahr): ' + $_.Exception.Message) -Encoding UTF8
+            } catch {}
+        }
+
+        try {
+            $monthOk = Add-SlicerForField $wb $statsTable $statsSheet 'Monat' 'Monat' 160 20 120 220
+            if (-not $monthOk) {
+                throw "Slicer für Feld 'Monat' konnte nicht erstellt werden."
+            }
+        }
+        catch {
+            try {
+                Add-Content -Path $payload.log -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] Statistik-Slicer-Hinweis (Monat): ' + $_.Exception.Message) -Encoding UTF8
+            } catch {}
+        }
+
+        $statsSheet.Columns.AutoFit() | Out-Null
+        $wb.Save()
+        $saveChanges = $true
+        Write-Status 'OK'
+        exit 0
+    }
+    finally {
+        try { if ($wb -ne $null) { [void]$wb.Close($saveChanges) } } catch {}
+        try { if ($excel -ne $null) { [void]$excel.Quit() } } catch {}
+        try { if ($wb -ne $null) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) } } catch {}
+        try { if ($excel -ne $null) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) } } catch {}
+    }
+}
+catch {
+    $msg = $_.Exception.Message
+    try {
+        if ($null -ne $_.InvocationInfo -and -not [string]::IsNullOrWhiteSpace($_.InvocationInfo.PositionMessage)) {
+            $msg = $msg + ' | ' + $_.InvocationInfo.PositionMessage
+        }
+    } catch {}
+
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) {
+            $msg = $msg + ' | Stack: ' + $_.ScriptStackTrace
+        }
+    } catch {}
+
+    try { Write-Status ('ERR: ' + $msg) } catch {}
+    try {
+        Add-Content -Path $payload.log -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] Pivot-PS-Fehler: ' + $msg) -Encoding UTF8
+    } catch {}
+    exit 1
+}
+""".strip()
+    ps_file.write_text(ps_script, encoding="utf-8-sig")
+
+    try:
+        process = subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-STA",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(ps_file),
+                "-PayloadPath",
+                str(payload_file),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if status_file.exists():
+                status_text = status_file.read_text(encoding="utf-8-sig", errors="ignore").strip()
+                if status_text == "OK":
+                    _log_debug("Statistik-Datenschnitt-Upgrade erfolgreich.")
+                    return
+
+                _log_debug(f"Statistik-Datenschnitt-Upgrade übersprungen: {status_text}")
+                return
+
+            if process.poll() is not None:
+                if process.returncode == 0:
+                    _log_debug("Statistik-Datenschnitt-Upgrade bestätigt (ExitCode 0 ohne Statusdatei).")
+                else:
+                    stdout_text = ""
+                    stderr_text = ""
+                    try:
+                        captured_out, captured_err = process.communicate(timeout=1)
+                        stdout_text = (captured_out or "").strip()
+                        stderr_text = (captured_err or "").strip()
+                    except Exception:
+                        pass
+
+                    details: list[str] = []
+                    if stdout_text:
+                        details.append(f"stdout={stdout_text}")
+                    if stderr_text:
+                        details.append(f"stderr={stderr_text}")
+
+                    suffix = f" ({'; '.join(details)})" if details else ""
+                    _log_debug(f"Statistik-Datenschnitt-Upgrade fehlgeschlagen (PowerShell ExitCode != 0){suffix}.")
+                return
+
+            time.sleep(0.2)
+
+        _log_debug("Statistik-Datenschnitt-Upgrade hat das Zeitlimit erreicht; bestehende Statistik bleibt bestehen.")
+    except Exception as exc:
+        _log_debug(f"Statistik-Datenschnitt-Upgrade konnte nicht ausgeführt werden: {exc}")
+    finally:
+        for temp_file in (status_file, payload_file, ps_file):
+            try:
+                temp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _apply_low_result_conditional_formatting(ws, columns: list[str]) -> None:
+    if ws.max_row < 2:
+        return
+
+    if "Ergebnis" not in columns:
+        return
+
+    result_col_idx = columns.index("Ergebnis") + 1
+    result_col_letter = get_column_letter(result_col_idx)
+    last_col_letter = get_column_letter(len(columns))
+    last_row = ws.max_row
+
+    data_range = f"A2:{last_col_letter}{last_row}"
+    result_cell_ref = f"${result_col_letter}2"
+
+    low_result_fill = PatternFill(
+        fill_type="solid",
+        start_color="FFFFC7CE",
+        end_color="FFFFC7CE",
+    )
+
+    ws.conditional_formatting.add(
+        data_range,
+        FormulaRule(
+            formula=[
+                (
+                    f'=IFERROR(VALUE(SUBSTITUTE(SUBSTITUTE({result_cell_ref},"%",""),CHAR(160),""))<75,FALSE)'
+                )
+            ],
+            fill=low_result_fill,
+        ),
+    )
 
 
 def _populate_sheet(
@@ -741,11 +1190,13 @@ def _populate_sheet(
                 # Benutzerdefiniertes Zahlenformat: Ganzzahl + " min"
                 cell.number_format = '0 "min"'
 
+    _apply_low_result_conditional_formatting(ws, columns)
+
     # Tabelle für bessere Weiterverarbeitung in Excel
     end_row = ws.max_row
     end_col = ws.max_column
     if end_row >= 2:
-        table_ref = f"A1:{chr(64 + end_col)}{end_row}"
+        table_ref = f"A1:{get_column_letter(end_col)}{end_row}"
         tab = Table(displayName=table_name, ref=table_ref)
         tab.tableStyleInfo = TableStyleInfo(
             name="TableStyleMedium2",
@@ -800,6 +1251,18 @@ def _write_excel(rows: list[dict[str, str]], new_data_history_rows: list[dict[st
         table_name="ICDLNeueDaten",
     )
 
+    stats_columns, stats_rows = _build_statistics_data(new_data_history_rows)
+    ws_stats = wb.create_sheet(title="Statistik")
+    _populate_sheet(
+        ws_stats,
+        stats_rows,
+        columns=stats_columns,
+        base_font=base_font,
+        header_font=header_font,
+        table_name="ICDLStatistik",
+    )
+    _set_statistics_sheet_column_widths(ws_stats, stats_columns)
+
     if not new_data_history_rows:
         hint_cell = ws_new.cell(row=2, column=1)
         hint_cell.value = "Keine neuen Datensätze gegenüber der zuletzt archivierten Excel-Datei erkannt."
@@ -808,6 +1271,7 @@ def _write_excel(rows: list[dict[str, str]], new_data_history_rows: list[dict[st
         hint_cell.alignment = Alignment(horizontal="left", vertical="center")
 
     wb.save(output_xlsx)
+    _enhance_statistics_with_pivot_and_slicers(output_xlsx)
 
 
 def _prune_archive_directory(archive_dir: Path, keep_last: int = 10) -> int:
@@ -999,7 +1463,12 @@ try {
         $excel.Visible = $false
         $excel.DisplayAlerts = $false
         $workbook = $excel.Workbooks.Open($payload.attachment)
-        $worksheet = $workbook.Worksheets.Item(1)
+        $worksheet = $null
+        try { $worksheet = $workbook.Worksheets.Item('Ergebnisse') } catch {}
+        if ($null -eq $worksheet) {
+            # Fallback für unerwartete/ältere Dateien ohne benanntes Blatt.
+            $worksheet = $workbook.Worksheets.Item(1)
+        }
         $usedRange = $worksheet.UsedRange
         if ($null -eq $usedRange) {
             throw 'Die Excel-Tabelle enthält keinen kopierbaren Bereich.'
@@ -1555,6 +2024,11 @@ def run_gui() -> None:
     )
     style.map("Primary.TButton", background=[("active", "#2563EB")])
     style.configure("Secondary.TButton", font=("Segoe UI", 10), padding=(12, 8))
+    style.map(
+        "Secondary.TButton",
+        foreground=[("disabled", "#9CA3AF")],
+        background=[("disabled", "#E5E7EB")],
+    )
     style.configure("App.TLabelframe", background="#FFFFFF", borderwidth=0)
     style.configure("App.TLabelframe.Label", background="#FFFFFF", foreground="#1F2937", font=("Segoe UI", 10, "bold"))
 
@@ -1628,6 +2102,16 @@ def run_gui() -> None:
     status_var = tk.StringVar(value="Bereit")
     running_flag = {"busy": False, "phase": "idle"}
     progress_var = tk.DoubleVar(value=0.0)
+    # Start bewusst ohne vorbelegte Datei: Der Button soll erst nach einer
+    # neu erstellten Ergebnisdatei in dieser Sitzung aktiv werden.
+    latest_result_file: dict[str, Path | None] = {"path": None}
+
+    def _set_latest_result_file(path: Path | None) -> None:
+        latest_result_file["path"] = path
+        if path is not None and path.exists():
+            open_result_btn.state(["!disabled"])
+        else:
+            open_result_btn.state(["disabled"])
 
     def _set_progress(value: float, style_name: str = "Processing.Horizontal.TProgressbar") -> None:
         progress.configure(style=style_name)
@@ -1660,6 +2144,23 @@ def run_gui() -> None:
         else:
             _set_progress(0.0)
         status_var.set(status_text)
+
+    def on_open_latest_result() -> None:
+        latest = latest_result_file.get("path")
+        if latest is None or not latest.exists():
+            messagebox.showinfo(APP_TITLE, "Es ist noch keine Ergebnisdatei vorhanden.")
+            _set_latest_result_file(None)
+            return
+
+        try:
+            if sys.platform.startswith("win") and hasattr(os, "startfile"):
+                os.startfile(str(latest))
+            else:
+                subprocess.Popen(["explorer", str(latest)])
+            _log_debug(f"Ergebnisdatei geöffnet: {latest}")
+        except Exception as exc:
+            _log_debug(f"Öffnen der Ergebnisdatei fehlgeschlagen: {exc}")
+            messagebox.showerror(APP_TITLE, f"Die Ergebnisdatei konnte nicht geöffnet werden:\n{exc}")
 
     def _schedule_outlook_watchdog() -> None:
         def _watchdog() -> None:
@@ -1720,6 +2221,7 @@ def run_gui() -> None:
 
                         if outlook_error is None and archived_xlsx is not None:
                             def on_ok() -> None:
+                                _set_latest_result_file(archived_xlsx)
                                 _set_idle(f"Fertig: archive\\{archived_xlsx.name}")
 
                             root.after(0, on_ok)
@@ -1729,6 +2231,7 @@ def run_gui() -> None:
                             def on_err() -> None:
                                 _set_idle("Fehler")
                                 if archived_xlsx is not None:
+                                    _set_latest_result_file(archived_xlsx)
                                     messagebox.showerror(
                                         APP_TITLE,
                                         f"Fehler bei Outlook-Vorschau: {err}\n\n"
@@ -1860,8 +2363,10 @@ def run_gui() -> None:
 
             def finish() -> None:
                 if successes and not failures:
+                    _set_latest_result_file(successes[-1])
                     _set_idle(f"Fertig: {len(successes)} Datei(en) nach archive verarbeitet")
                 elif successes:
+                    _set_latest_result_file(successes[-1])
                     _set_idle(f"Fertig mit Hinweisen: {len(successes)} Datei(en) verarbeitet")
                     messagebox.showwarning(
                         APP_TITLE,
@@ -1919,6 +2424,18 @@ def run_gui() -> None:
         style="Processing.Horizontal.TProgressbar",
     )
     progress.pack(fill="x", pady=(8, 2))
+
+    result_actions_frame = ttk.Frame(content, style="Action.TFrame")
+    result_actions_frame.pack(fill="x", pady=(4, 0))
+
+    open_result_btn = ttk.Button(
+        result_actions_frame,
+        text="Ergebnisdatei öffnen",
+        command=on_open_latest_result,
+        style="Secondary.TButton",
+    )
+    open_result_btn.pack(side="right")
+    _set_latest_result_file(latest_result_file.get("path"))
 
     # Auto-Start: Tagesaktuelle examinations.csv in App-/EXE-Verzeichnis, Desktop oder Downloads verarbeiten.
     def _auto_start_if_daily_csv_available() -> None:
